@@ -1,4 +1,14 @@
 <script>
+  (function ensureViewport() {
+    if (!document.querySelector('meta[name="viewport"]')) {
+      var m = document.createElement('meta');
+      m.name = 'viewport';
+      m.content = 'width=device-width, initial-scale=1, viewport-fit=cover';
+      (document.head || document.documentElement).appendChild(m);
+    }
+  })();
+</script>
+<script>
   const DB_URL = "https://easy-f9cc4-default-rtdb.firebaseio.com";
 
   async function rtdbGet(path) {
@@ -103,7 +113,6 @@
       if (!res.ok) throw new Error(`Erro ${res.status} ao adicionar horários`);
     },
 
-    // ───────────── Admin / usuários ─────────────
     async sha256(text) {
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -117,7 +126,7 @@
       return Object.keys(obj).map(k => ({ key: k, username: obj[k].username || k, createdAt: obj[k].createdAt || null }));
     },
     async ensureSeedAdmin() {
-      // Cria um admin inicial apenas se não existir nenhum (migração da senha antiga).
+
       const obj = await rtdbGet('admins');
       if (obj && Object.keys(obj).length > 0) return false;
       const key = this._userKey('admin');
@@ -152,7 +161,6 @@
       await rtdbDelete(`admins/${key}`);
     },
 
-    // ───────────── Logs ─────────────
     async addLog(actor, action) {
       await rtdbPost('logs', { actor, action, at: Date.now() });
     },
@@ -294,6 +302,36 @@
   @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes fadeDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
   @media (prefers-reduced-motion: reduce) { #app-root * { animation: none !important; transition: none !important; } }
+
+  @media (max-width: 600px) {
+    #app-root .topbar { padding: 20px 14px 14px; }
+    #app-root .content-wrap { padding: 0 14px 90px; }
+    #app-root h1 { font-size: 22px; }
+    #app-root .sub { font-size: 13.5px; margin-bottom: 20px; }
+    #app-root .card { padding: 16px; border-radius: 14px; }
+
+    #app-root .admin-slot-row { flex-direction: column; align-items: stretch; gap: 8px; }
+    #app-root .admin-slot-row > div { width: 100%; }
+    #app-root .admin-slot-row > div[style*="flex"] { display: flex; align-items: center; }
+    #app-root .admin-slot-row .btn-danger,
+    #app-root .admin-slot-row .btn-ghost { width: 100%; }
+
+    #app-root .row { flex-direction: column; gap: 8px; }
+    #app-root .row > * { width: 100%; }
+    #app-root .row .btn { width: 100%; }
+
+    #app-root .btn { padding: 12px 18px; }
+    #app-root .btn-danger { font-size: 13px; padding: 10px 14px; }
+
+    #app-root .subtabs { gap: 6px; }
+    #app-root .subtab { padding: 8px 12px; font-size: 12.5px; }
+
+    #app-root .slot-btn { padding: 12px 8px; font-size: 15px; }
+    #app-root .weekday-chip { padding: 8px 12px; font-size: 13px; }
+
+    #app-root input[type=text], #app-root input[type=tel], #app-root input[type=date],
+    #app-root input[type=time], #app-root input[type=password], #app-root .day-select { font-size: 16px; }
+  }
 </style>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -509,10 +547,10 @@ function AdminView({ slots, onBack }) {
   const [pendingTimes, setPendingTimes] = useState([]);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState('agenda');
-  const [dateMode, setDateMode] = useState('single'); // 'single' | 'range'
+  const [dateMode, setDateMode] = useState('single');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]); // seg–sex por padrão
+  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
   const [rangeMsg, setRangeMsg] = useState('');
   const [selectMode, setSelectMode] = useState(false);
   const [selectedSlots, setSelectedSlots] = useState([]);
@@ -576,7 +614,7 @@ function AdminView({ slots, onBack }) {
     let cur = new Date(startDate + 'T00:00:00');
     const end = new Date(endDate + 'T00:00:00');
     while (cur <= end) {
-      // getDay(): 0=domingo … 6=sábado
+
       if (weekdays.includes(cur.getDay())) {
         out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`);
       }
