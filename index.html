@@ -1,9 +1,5 @@
-<!--
--->
 <script>
-  // ============ URL DO SEU REALTIME DATABASE ============
   const DB_URL = "https://easy-f9cc4-default-rtdb.firebaseio.com";
-  // ========================================================
 
   async function rtdbGet(path) {
     const res = await fetch(`${DB_URL}/${path}.json`);
@@ -26,7 +22,7 @@
       body: JSON.stringify(value)
     });
     if (!res.ok) throw new Error(`Erro ${res.status} ao criar em ${path}`);
-    return res.json(); // { name: "<id gerado>" }
+    return res.json();
   }
   async function rtdbDelete(path) {
     const res = await fetch(`${DB_URL}/${path}.json`, { method: 'DELETE' });
@@ -55,7 +51,7 @@
         }
       }
       tick();
-      pollHandle = setInterval(tick, 3000); // atualiza a cada 3s para refletir reservas de outras pessoas
+      pollHandle = setInterval(tick, 3000);
       return () => { stopped = true; clearInterval(pollHandle); };
     },
     async addSlot(date, time) {
@@ -65,8 +61,6 @@
       await rtdbDelete(`slots/${id}`);
     },
     async bookSlot(id, clientName, animalName) {
-      // checa o estado mais recente antes de reservar (reduz risco de conflito,
-      // não é uma transação atômica de verdade, mas é suficiente para uso simples)
       const current = await rtdbGet(`slots/${id}`);
       if (!current || current.status === 'booked') {
         throw new Error("already-booked");
@@ -80,7 +74,6 @@
         const key = `${date}_${t}`.replace(/[^a-zA-Z0-9_]/g, '');
         obj[key] = { date, time: t, status: 'available' };
       });
-      // usa update para gravar vários de uma vez (mais rápido que vários POSTs)
       const res = await fetch(`${DB_URL}/slots.json`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -185,7 +178,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const ADMIN_PASS = "admin123"; // senha simples só para liberar a tela de administração
+const ADMIN_PASS = "admin123";
 
 function formatDateLabel(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
@@ -465,7 +458,6 @@ function AgendaView({ slots }) {
     if (allDates.length > 0 && !allDates.includes(activeDate)) {
       setActiveDate(allDates.includes(todayStr) ? todayStr : allDates[0]);
     }
-    // eslint-disable-next-line
   }, [slots.length]);
 
   if (slots.length === 0) {
