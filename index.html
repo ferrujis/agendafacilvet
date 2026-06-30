@@ -288,6 +288,11 @@
   #app-root .agenda-cell-empty { background: #F7FAF9; }
   #app-root .agenda-cell-free { background: var(--ok-bg); color: var(--accent-dark); }
   #app-root .agenda-cell-free::before { content: '· livre'; opacity: .7; font-weight: 500; }
+  #app-root .agenda-cell-open { outline: 2px solid var(--accent); outline-offset: -2px; }
+  #app-root .agenda-popover-backdrop { position: fixed; inset: 0; z-index: 40; background: transparent; }
+  #app-root .agenda-popover { position: fixed; z-index: 41; width: 260px; max-width: calc(100vw - 24px); background: #fff; border: 1px solid #DCEDE8; border-radius: 14px; padding: 16px; box-shadow: 0 18px 40px -12px rgba(6,47,74,.4); animation: fadeUp .18s ease both; }
+  #app-root .agenda-popover-close { position: absolute; top: 8px; right: 10px; border: none; background: transparent; font-size: 20px; line-height: 1; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  #app-root .agenda-popover-close:hover { background: #F0F9FF; color: var(--primary); }
   #app-root .agenda-cell-booked { background: #E0F2FE; color: var(--primary); cursor: pointer; }
   #app-root .agenda-cell-booked:hover { background: #BAE6FD; }
   #app-root .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
@@ -1039,6 +1044,7 @@ function LogsView() {
 
 function AgendaView({ slots }) {
   const [selected, setSelected] = useState(null);
+  const [anchor, setAnchor] = useState(null);
   const allDates = [...new Set(slots.map(s => s.date))].sort();
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -1067,12 +1073,26 @@ function AgendaView({ slots }) {
     <div>
       <div className="card" style={{marginBottom: 16}}>
         <label style={{marginTop: 0}}>Visualizando</label>
-        <select className="day-select" value={activeDate} onChange={e => setActiveDate(e.target.value)}>
-          {allDates.map(d => (
-            <option key={d} value={d}>{formatDateLabel(d)}</option>
-          ))}
-          <option value="todos">Todos os dias</option>
-        </select>
+        <div className="row" style={{alignItems: 'stretch'}}>
+          <input
+            type="date"
+            className="day-select"
+            value={activeDate === 'todos' ? '' : activeDate}
+            min={allDates[0]}
+            max={allDates[allDates.length - 1]}
+            onChange={e => { setActiveDate(e.target.value || (allDates[0] || '')); setSelected(null); }}
+          />
+          <button
+            className={"btn " + (activeDate === 'todos' ? 'btn-primary' : 'btn-ghost on-card')}
+            style={{flex: '0 0 auto'}}
+            onClick={() => { setActiveDate(activeDate === 'todos' ? (allDates.includes(todayStr) ? todayStr : allDates[0]) : 'todos'); setSelected(null); }}
+          >
+            {activeDate === 'todos' ? 'Ver um dia' : 'Todos os dias'}
+          </button>
+        </div>
+        {activeDate !== 'todos' && !allDates.includes(activeDate) && (
+          <p className="meta" style={{marginTop: 8}}>Não há horários cadastrados nessa data.</p>
+        )}
         <div className="agenda-summary" style={{marginTop: 12}}>
           <div><strong>{bookedCount}</strong> agendada{bookedCount !== 1 ? 's' : ''}</div>
           <div className="meta">de {visibleSlots.length} horário{visibleSlots.length !== 1 ? 's' : ''} {activeDate === 'todos' ? 'no total' : 'nesse dia'}</div>
@@ -1095,11 +1115,18 @@ function AgendaView({ slots }) {
               {dayDates.map(d => {
                 const s = byKey[`${d}|${t}`];
                 if (!s) return <div key={d} className="agenda-cell agenda-cell-empty"></div>;
+                const isOpen = selected && selected.id === s.id;
                 return (
                   <div
                     key={d}
-                    className={"agenda-cell " + (s.status === 'booked' ? 'agenda-cell-booked' : 'agenda-cell-free')}
-                    onClick={() => s.status === 'booked' && setSelected(s)}
+                    className={"agenda-cell " + (s.status === 'booked' ? 'agenda-cell-booked' : 'agenda-cell-free') + (isOpen ? ' agenda-cell-open' : '')}
+                    onClick={(e) => {
+                      if (s.status !== 'booked') return;
+                      if (isOpen) { setSelected(null); setAnchor(null); return; }
+                      const r = e.currentTarget.getBoundingClientRect();
+                      setAnchor({ x: r.left + r.width / 2, y: r.bottom });
+                      setSelected(s);
+                    }}
                   >
                     {s.status === 'booked' ? (s.animalName || s.clientName || 'Ocupado') : ''}
                   </div>
@@ -1110,16 +1137,28 @@ function AgendaView({ slots }) {
         </div>
       </div>
 
-      {selected && (
-        <div className="card" style={{marginTop: 16}}>
-          <p style={{margin: '0 0 6px', fontWeight: 700}}>{formatDateLabel(selected.date)} às {selected.time}</p>
-          <p className="meta">Tutor: {selected.clientName}</p>
-          <p className="meta">Animal: {selected.animalName}</p>
-          <div className="row" style={{marginTop: 12}}>
-            <button className="btn btn-ghost on-card" onClick={() => setSelected(null)}>Fechar</button>
-            <button className="btn btn-danger" onClick={async () => { await window.firebaseApi.releaseSlot(selected.id); setSelected(null); }}>Liberar horário</button>
+      {selected && anchor && (
+        <>
+          <div className="agenda-popover-backdrop" onClick={() => { setSelected(null); setAnchor(null); }}></div>
+          <div
+            className="agenda-popover"
+            style={{
+              top: Math.min(anchor.y + 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 200),
+              left: Math.max(12, Math.min(anchor.x - 130, (typeof window !== 'undefined' ? window.innerWidth : 400) - 272))
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button className="agenda-popover-close" onClick={() => { setSelected(null); setAnchor(null); }} aria-label="Fechar">×</button>
+            <p style={{margin: '0 0 6px', fontWeight: 700, fontSize: 14}}>{formatDateLabel(selected.date)} às {selected.time}</p>
+            <p className="meta" style={{margin: '0 0 2px'}}>Tutor: {selected.clientName || '—'}</p>
+            <p className="meta" style={{margin: 0}}>Animal: {selected.animalName || '—'}</p>
+            <button
+              className="btn btn-danger"
+              style={{marginTop: 12, width: '100%'}}
+              onClick={async () => { await window.firebaseApi.releaseSlot(selected.id); setSelected(null); setAnchor(null); }}
+            >Liberar horário</button>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
