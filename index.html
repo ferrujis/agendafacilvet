@@ -36,7 +36,17 @@
 
   let pollHandle = null;
 
+  function getDeviceId() {
+    let id = localStorage.getItem('agenda_device_id');
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+      localStorage.setItem('agenda_device_id', id);
+    }
+    return id;
+  }
+
   window.firebaseApi = {
+    getDeviceId,
     listen(callback) {
       let stopped = false;
       async function tick() {
@@ -60,12 +70,23 @@
     async removeSlot(id) {
       await rtdbDelete(`slots/${id}`);
     },
+    async releaseSlot(id) {
+      const current = await rtdbGet(`slots/${id}`);
+      if (!current) return;
+      await rtdbPut(`slots/${id}`, { date: current.date, time: current.time, status: 'available' });
+    },
     async bookSlot(id, clientName, animalName) {
+      const deviceId = getDeviceId();
       const current = await rtdbGet(`slots/${id}`);
       if (!current || current.status === 'booked') {
         throw new Error("already-booked");
       }
-      await rtdbPut(`slots/${id}`, { ...current, status: 'booked', clientName, animalName });
+      const allSlots = slotsObjToArray(await rtdbGet('slots'));
+      const alreadyBookedToday = allSlots.some(s => s.date === current.date && s.status === 'booked' && s.deviceId === deviceId);
+      if (alreadyBookedToday) {
+        throw new Error("one-per-day");
+      }
+      await rtdbPut(`slots/${id}`, { ...current, status: 'booked', clientName, animalName, deviceId });
       return true;
     },
     async addSlots(date, times) {
@@ -80,6 +101,68 @@
         body: JSON.stringify(obj)
       });
       if (!res.ok) throw new Error(`Erro ${res.status} ao adicionar horários`);
+    },
+
+    // ───────────── Admin / usuários ─────────────
+    async sha256(text) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    },
+    _userKey(username) {
+      return String(username).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    },
+    async listAdmins() {
+      const obj = await rtdbGet('admins');
+      if (!obj) return [];
+      return Object.keys(obj).map(k => ({ key: k, username: obj[k].username || k, createdAt: obj[k].createdAt || null }));
+    },
+    async ensureSeedAdmin() {
+      // Cria um admin inicial apenas se não existir nenhum (migração da senha antiga).
+      const obj = await rtdbGet('admins');
+      if (obj && Object.keys(obj).length > 0) return false;
+      const key = this._userKey('admin');
+      const hash = await this.sha256('admin123');
+      await rtdbPut(`admins/${key}`, { username: 'admin', hash, createdAt: Date.now() });
+      return true;
+    },
+    async verifyAdmin(username, password) {
+      const key = this._userKey(username);
+      const rec = await rtdbGet(`admins/${key}`);
+      if (!rec) return false;
+      const hash = await this.sha256(password);
+      return rec.hash === hash;
+    },
+    async createAdmin(username, password) {
+      const key = this._userKey(username);
+      if (!key) throw new Error('Usuário inválido.');
+      const existing = await rtdbGet(`admins/${key}`);
+      if (existing) throw new Error('Esse usuário já existe.');
+      const hash = await this.sha256(password);
+      await rtdbPut(`admins/${key}`, { username: String(username).trim(), hash, createdAt: Date.now() });
+    },
+    async changePassword(username, newPassword) {
+      const key = this._userKey(username);
+      const rec = await rtdbGet(`admins/${key}`);
+      if (!rec) throw new Error('Usuário não encontrado.');
+      const hash = await this.sha256(newPassword);
+      await rtdbPut(`admins/${key}`, { ...rec, hash });
+    },
+    async deleteAdmin(username) {
+      const key = this._userKey(username);
+      await rtdbDelete(`admins/${key}`);
+    },
+
+    // ───────────── Logs ─────────────
+    async addLog(actor, action) {
+      await rtdbPost('logs', { actor, action, at: Date.now() });
+    },
+    async listLogs(limit = 200) {
+      const obj = await rtdbGet('logs');
+      if (!obj) return [];
+      return Object.keys(obj)
+        .map(id => ({ id, ...obj[id] }))
+        .sort((a, b) => (b.at || 0) - (a.at || 0))
+        .slice(0, limit);
     }
   };
   window.dispatchEvent(new Event('firebase-ready'));
@@ -87,88 +170,130 @@
 
 <div id="app-root"></div>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
   #app-root, #app-root * { box-sizing: border-box; }
   #app-root {
-    --bg: #FAF8F4;
-    --ink: #2B2A28;
-    --muted: #7A7670;
-    --line: #E4E0D8;
-    --accent: #B5562D;
-    --accent-ink: #FFFFFF;
-    --ok: #3F7A56;
-    --ok-bg: #EAF3ED;
-    --warn-bg: #FBEAEA;
-    --warn-ink: #A33A3A;
-    --card: #FFFFFF;
+    --primary: #0C4A6E;
+    --accent: #059669;
+    --accent-dark: #047857;
+    --line: rgba(255,255,255,0.18);
+    --line-card: #DCEDE8;
+    --ok-bg: #DCFCE7;
+    --warn-bg: #FEF2F2;
+    --warn-ink: #B91C1C;
+    --muted: #5a7a75;
+    --ink: #14302C;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    background: var(--bg);
-    color: var(--ink);
+    background: linear-gradient(160deg, #2DD4BF 0%, #0EA5E9 30%, #0369A1 60%, #065F66 100%);
+    background-attachment: fixed;
     min-height: 100vh;
     padding: 0;
+    position: relative;
   }
-  #app-root .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 80px; }
-  #app-root h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
-  #app-root .sub { color: var(--muted); font-size: 14px; margin: 0 0 28px; }
-  #app-root .tabs { display: flex; gap: 4px; margin-bottom: 28px; border-bottom: 1px solid var(--line); }
-  #app-root .tab { padding: 10px 16px; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; }
-  #app-root .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-  #app-root .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 14px; }
-  #app-root .date-heading { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 24px 0 10px; }
+  #app-root h1 { font-family: 'Poppins', sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; color: #fff; animation: fadeUp .65s ease .05s both; }
+  #app-root .sub { color: rgba(255,255,255,.82); font-size: 14.5px; margin: 0 0 28px; animation: fadeUp .65s ease .1s both; }
+  #app-root .topbar { position: relative; max-width: 720px; margin: 0 auto; padding: 28px 20px 18px; display: flex; align-items: flex-start; justify-content: space-between; z-index: 2; }
+  #app-root .topbar-left { animation: fadeDown .55s ease both; }
+  #app-root .brand-icon {
+    width: 40px; height: 40px; border-radius: 12px;
+    background: rgba(255,255,255,.15); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,.25);
+    display: flex; align-items: center; justify-content: center; margin-bottom: 18px;
+  }
+  #app-root .brand-icon svg { width: 22px; height: 22px; }
+  #app-root .admin-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: rgba(255,255,255,.14); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,.22);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: background .18s, transform .18s;
+    animation: fadeDown .55s ease both;
+  }
+  #app-root .admin-btn:hover { background: rgba(255,255,255,.26); transform: scale(1.08); }
+  #app-root .admin-btn svg { width: 18px; height: 18px; }
+  #app-root .content-wrap { max-width: 720px; margin: 0 auto; padding: 0 20px 100px; position: relative; z-index: 2; }
+  #app-root .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,.6); margin: 0 0 10px; }
+  #app-root .card {
+    background: rgba(255,255,255,0.94); border: 1px solid rgba(255,255,255,0.7);
+    border-radius: 16px; padding: 20px; margin-bottom: 14px;
+    animation: fadeUp .5s ease both; transition: box-shadow .2s ease, transform .2s ease;
+    backdrop-filter: blur(10px);
+  }
+  #app-root .card:hover { box-shadow: 0 12px 32px -16px rgba(6,47,74,0.35); }
+  #app-root .date-heading { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,.65); margin: 22px 0 8px; }
   #app-root .date-heading:first-of-type { margin-top: 0; }
   #app-root .slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
   #app-root .slot-btn {
-    padding: 10px 6px; border-radius: 10px; border: 1px solid var(--line); background: #fff;
-    font-size: 14px; font-weight: 600; cursor: pointer; transition: all .12s; color: var(--ink);
+    padding: 10px 6px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.7);
+    background: rgba(255,255,255,0.92); backdrop-filter: blur(8px);
+    font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s ease; color: var(--ink);
   }
-  #app-root .slot-btn:hover { border-color: var(--accent); color: var(--accent); }
-  #app-root .slot-btn.booked { background: #F2F1ED; color: #B8B4AC; border-color: #ECE9E2; cursor: not-allowed; text-decoration: line-through; }
-  #app-root .slot-btn.selected { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  #app-root .empty { color: var(--muted); font-size: 14px; padding: 24px 0; text-align: center; }
-  #app-root label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  #app-root .slot-btn:hover { border-color: var(--accent); color: var(--accent-dark); transform: translateY(-2px); box-shadow: 0 6px 14px -6px rgba(5,150,105,.4); background: #fff; }
+  #app-root .slot-btn.booked { background: rgba(230,240,238,0.7); color: #a0b8b2; border-color: rgba(200,220,216,0.5); cursor: not-allowed; text-decoration: line-through; transform: none; box-shadow: none; }
+  #app-root .slot-btn.selected { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; border-color: transparent; transform: translateY(-2px); box-shadow: 0 8px 18px -6px rgba(5,150,105,.55); }
+  #app-root .empty { color: rgba(255,255,255,.7); font-size: 14px; padding: 24px 0; text-align: center; }
+  #app-root label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; color: var(--ink); }
   #app-root input[type=text], #app-root input[type=tel], #app-root input[type=date], #app-root input[type=time], #app-root input[type=password] {
-    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; font-family: inherit; background: #fff; color: var(--ink);
+    width: 100%; padding: 10px 12px; border: 1px solid #DCEDE8; border-radius: 9px; font-size: 14px; font-family: inherit; background: #fff; color: var(--ink); transition: border-color .15s, box-shadow .15s;
   }
-  #app-root input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-  #app-root .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 11px 20px; border-radius: 8px; border: none; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .12s; }
-  #app-root .btn-primary { background: var(--accent); color: var(--accent-ink); }
-  #app-root .btn-primary:hover { opacity: .9; }
-  #app-root .btn-primary:disabled { background: #D9D5CC; cursor: not-allowed; }
-  #app-root .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
-  #app-root .btn-danger { background: #fff; color: #B5562D; border: 1px solid #EBD3C7; font-size: 12px; padding: 6px 10px; }
-  #app-root .confirm-banner { background: var(--ok-bg); color: var(--ok); border-radius: 10px; padding: 16px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+  #app-root input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(5,150,105,.14); }
+  #app-root .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 11px 20px; border-radius: 10px; border: none; font-size: 14px; font-weight: 700; cursor: pointer; transition: all .15s ease; }
+  #app-root .btn-primary { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; box-shadow: 0 6px 16px -6px rgba(5,150,105,.45); }
+  #app-root .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(5,150,105,.55); }
+  #app-root .btn-primary:disabled { background: #CBD8D5; box-shadow: none; cursor: not-allowed; transform: none; }
+  #app-root .btn-ghost { background: rgba(255,255,255,0.12); color: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.25); backdrop-filter: blur(6px); }
+  #app-root .btn-ghost:hover { background: rgba(255,255,255,.22); color: #fff; }
+  #app-root .btn-ghost.on-card { background: transparent; color: var(--muted); border: 1px solid #DCEDE8; }
+  #app-root .btn-ghost.on-card:hover { border-color: var(--accent); color: var(--accent-dark); }
+  #app-root .btn-danger { background: #fff; color: var(--primary); border: 1px solid #CFE3EE; font-size: 12px; padding: 6px 10px; }
+  #app-root .btn-danger:hover { background: #F0F9FF; border-color: #7DD3FC; }
+  #app-root .confirm-banner { background: var(--ok-bg); color: var(--accent-dark); border-radius: 10px; padding: 16px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
   #app-root .error-banner { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 16px; font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
   #app-root .row { display: flex; gap: 10px; }
   #app-root .row > * { flex: 1; }
-  #app-root .admin-slot-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  #app-root .admin-slot-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #DCEDE8; font-size: 14px; }
   #app-root .admin-slot-row:last-child { border-bottom: none; }
   #app-root .tag { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
-  #app-root .tag-free { background: var(--ok-bg); color: var(--ok); }
-  #app-root .tag-booked { background: #F2EAE4; color: var(--accent); }
+  #app-root .tag-free { background: var(--ok-bg); color: var(--accent-dark); }
+  #app-root .tag-booked { background: #E0F2FE; color: var(--primary); }
   #app-root .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  #app-root .lock-screen { max-width: 320px; margin: 80px auto; text-align: center; }
+  #app-root .lock-screen { max-width: 320px; margin: 0 auto 24px; text-align: center; }
   #app-root .small-note { font-size: 12px; color: var(--muted); margin-top: 8px; }
-  #app-root .subtabs { display: flex; gap: 8px; margin-bottom: 18px; }
-  #app-root .subtab { padding: 7px 14px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-radius: 999px; border: 1px solid var(--line); background: #fff; }
-  #app-root .subtab.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+  #app-root .back-btn { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.22); border-radius: 999px; padding: 6px 14px 6px 10px; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.9); cursor: pointer; margin-bottom: 18px; transition: background .15s; backdrop-filter: blur(6px); }
+  #app-root .back-btn:hover { background: rgba(255,255,255,.22); }
+  #app-root .back-btn svg { width: 14px; height: 14px; }
+  #app-root .subtabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  #app-root .subtab { padding: 7px 14px; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.75); cursor: pointer; border-radius: 999px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); backdrop-filter: blur(6px); transition: all .15s; }
+  #app-root .subtab.active { color: #fff; background: linear-gradient(135deg, var(--primary), var(--accent)); border-color: transparent; }
+  #app-root .subtabs.on-card .subtab { color: var(--muted); background: #fff; border: 1px solid #DCEDE8; backdrop-filter: none; }
+  #app-root .subtabs.on-card .subtab:hover { border-color: var(--accent); }
+  #app-root .subtabs.on-card .subtab.active { color: #fff; background: linear-gradient(135deg, var(--primary), var(--accent)); border-color: transparent; }
   #app-root .agenda-summary { display: flex; align-items: baseline; gap: 8px; }
-  #app-root .agenda-summary strong { font-size: 20px; color: var(--accent); }
+  #app-root .agenda-summary strong { font-size: 20px; color: var(--accent-dark); }
   #app-root .agenda-card { padding: 14px; overflow-x: auto; }
-  #app-root .agenda-grid { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; min-width: 480px; }
-  #app-root .agenda-corner { background: var(--card); }
-  #app-root .agenda-day-head { background: var(--card); padding: 8px 6px; text-align: center; font-size: 12px; font-weight: 700; text-transform: capitalize; color: var(--ink); }
+  #app-root .agenda-grid { display: grid; gap: 1px; background: #DCEDE8; border: 1px solid #DCEDE8; border-radius: 10px; overflow: hidden; min-width: 480px; }
+  #app-root .agenda-corner { background: #fff; }
+  #app-root .agenda-day-head { background: #fff; padding: 8px 6px; text-align: center; font-size: 12px; font-weight: 700; text-transform: capitalize; color: var(--primary); }
   #app-root .agenda-day-num { font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 1px; }
-  #app-root .agenda-time-label { background: var(--card); padding: 10px 8px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; }
-  #app-root .agenda-cell { background: var(--card); min-height: 44px; padding: 6px; font-size: 11.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.25; overflow: hidden; }
-  #app-root .agenda-cell-empty { background: #F7F5F1; }
-  #app-root .agenda-cell-free { background: var(--ok-bg); color: var(--ok); }
+  #app-root .agenda-time-label { background: #fff; padding: 10px 8px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; }
+  #app-root .agenda-cell { background: #fff; min-height: 44px; padding: 6px; font-size: 11.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.25; overflow: hidden; transition: background .15s; }
+  #app-root .agenda-cell-empty { background: #F7FAF9; }
+  #app-root .agenda-cell-free { background: var(--ok-bg); color: var(--accent-dark); }
   #app-root .agenda-cell-free::before { content: '· livre'; opacity: .7; font-weight: 500; }
-  #app-root .agenda-cell-booked { background: #F2EAE4; color: var(--accent); cursor: pointer; }
-  #app-root .agenda-cell-booked:hover { background: #EBDDD2; }
+  #app-root .agenda-cell-booked { background: #E0F2FE; color: var(--primary); cursor: pointer; }
+  #app-root .agenda-cell-booked:hover { background: #BAE6FD; }
   #app-root .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-  #app-root .chip { display: inline-flex; align-items: center; gap: 6px; background: #F2EAE4; color: var(--accent); font-size: 13px; font-weight: 600; padding: 5px 6px 5px 10px; border-radius: 999px; }
+  #app-root .chip { display: inline-flex; align-items: center; gap: 6px; background: #E0F2FE; color: var(--primary); font-size: 13px; font-weight: 600; padding: 5px 6px 5px 10px; border-radius: 999px; }
   #app-root .chip-x { cursor: pointer; font-size: 15px; line-height: 1; padding: 0 3px; opacity: .7; }
   #app-root .chip-x:hover { opacity: 1; }
-  #app-root .day-select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; font-family: inherit; background: #fff; color: var(--ink); }
+  #app-root .day-select { width: 100%; padding: 10px 12px; border: 1px solid #DCEDE8; border-radius: 8px; font-size: 14px; font-family: inherit; background: #fff; color: var(--ink); }
+  #app-root .weekday-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+  #app-root .weekday-chip { padding: 6px 11px; font-size: 13px; font-weight: 600; border-radius: 999px; border: 1px solid #DCEDE8; background: #fff; color: var(--muted); cursor: pointer; user-select: none; transition: all .15s; }
+  #app-root .weekday-chip:hover { border-color: var(--accent); }
+  #app-root .weekday-chip.active { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; border-color: transparent; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { #app-root * { animation: none !important; transition: none !important; } }
 </style>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -178,12 +303,15 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const ADMIN_PASS = "admin123";
-
 function formatDateLabel(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   const txt = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
   return txt.charAt(0).toUpperCase() + txt.slice(1);
+}
+
+function formatTimestamp(ms) {
+  if (!ms) return '';
+  return new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function App() {
@@ -215,30 +343,53 @@ function App() {
   }, []);
 
   return (
-    <div className="wrap">
-      <h1>Agendamento de visitas</h1>
-      <p className="sub">Escolha um horário disponível ou acesse o painel de administração.</p>
-      {configError && (
-        <div className="error-banner">
-          Não foi possível conectar ao Realtime Database ({configError}). Confira se a
-          DB_URL no topo do arquivo está correta e se as regras do banco permitem
-          leitura/escrita pública.
+    <div>
+      <div className="topbar">
+        <div className="topbar-left">
+          <div className="brand-icon">
+            <svg viewBox="0 0 24 24" fill="#fff" stroke="none">
+              <circle cx="6.5" cy="9.5" r="2.1"/>
+              <circle cx="10.5" cy="6.2" r="2.1"/>
+              <circle cx="13.5" cy="6.2" r="2.1"/>
+              <circle cx="17.5" cy="9.5" r="2.1"/>
+              <path d="M12 11.2c-2.4 0-4.6 1.8-5.2 4.1-.4 1.6.9 3 2.6 3 .9 0 1.7-.3 2.6-.3s1.7.3 2.6.3c1.7 0 3-1.4 2.6-3-.6-2.3-2.8-4.1-5.2-4.1Z"/>
+            </svg>
+          </div>
+          <h1>Agendamento de visitas</h1>
+          <p className="sub">Escolha um horário disponível para o seu pet.</p>
         </div>
-      )}
-      <div className="tabs">
-        <div className={"tab" + (tab === 'cliente' ? ' active' : '')} onClick={() => setTab('cliente')}>Agendar visita</div>
-        <div className={"tab" + (tab === 'admin' ? ' active' : '')} onClick={() => setTab('admin')}>Administração</div>
+        <div className="admin-btn" title={tab === 'admin' ? 'Fechar painel' : 'Administração'} onClick={() => setTab(tab === 'admin' ? 'cliente' : 'admin')}>
+          {tab === 'admin' ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          )}
+        </div>
       </div>
-      {!ready ? <div className="empty">Conectando…</div> : (
-        tab === 'cliente'
-          ? <ClienteView slots={slots} />
-          : <AdminView slots={slots} />
-      )}
+
+      <div className="content-wrap">
+        {configError && (
+          <div className="error-banner">
+            Não foi possível conectar ao Realtime Database ({configError}). Confira se a DB_URL está correta e se as regras permitem leitura/escrita.
+          </div>
+        )}
+        {!ready ? <div className="empty">Conectando…</div> : (
+          tab === 'cliente'
+            ? <ClienteView slots={slots} />
+            : <AdminView slots={slots} onBack={() => setTab('cliente')} />
+        )}
+      </div>
     </div>
   );
 }
 
 function ClienteView({ slots }) {
+  const [chosenDate, setChosenDate] = useState('');
   const [selected, setSelected] = useState(null);
   const [name, setName] = useState('');
   const [animal, setAnimal] = useState('');
@@ -261,7 +412,11 @@ function ClienteView({ slots }) {
       await window.firebaseApi.bookSlot(selected.id, name.trim(), animal.trim());
       setConfirmed({ ...selected, clientName: name.trim(), animalName: animal.trim() });
     } catch (e) {
-      setError('Esse horário acabou de ser reservado por outra pessoa. Escolha outro, por favor.');
+      if (e.message === 'one-per-day') {
+        setError('Você já tem uma visita agendada para esse dia. Só é permitido um agendamento por dia.');
+      } else {
+        setError('Esse horário acabou de ser reservado por outra pessoa. Escolha outro, por favor.');
+      }
       setSelected(null);
     }
     setSubmitting(false);
@@ -273,7 +428,7 @@ function ClienteView({ slots }) {
         <div className="confirm-banner">Visita confirmada! ✓</div>
         <p style={{margin: '0 0 4px'}}><strong>{formatDateLabel(confirmed.date)}</strong> às <strong>{confirmed.time}</strong></p>
         <p className="meta">Tutor: {confirmed.clientName} · Animal: {confirmed.animalName}</p>
-        <button className="btn btn-ghost" style={{marginTop: 16}} onClick={() => { setConfirmed(null); setSelected(null); setName(''); setAnimal(''); }}>Agendar outro horário</button>
+        <button className="btn btn-ghost on-card" style={{marginTop: 16}} onClick={() => { setConfirmed(null); setSelected(null); setName(''); setAnimal(''); }}>Agendar outro horário</button>
       </div>
     );
   }
@@ -284,11 +439,26 @@ function ClienteView({ slots }) {
 
   return (
     <div>
-      {dates.map(date => (
-        <div key={date}>
-          <div className="date-heading">{formatDateLabel(date)}</div>
+      <div className="card">
+        <label>Escolha a data da visita</label>
+        <input
+          type="date"
+          className="day-select"
+          value={chosenDate}
+          min={dates[0]}
+          max={dates[dates.length - 1]}
+          onChange={e => { setChosenDate(e.target.value); setSelected(null); setError(''); }}
+        />
+        {chosenDate && !byDate[chosenDate] && (
+          <p className="meta" style={{marginTop: 8}}>Não há horários disponíveis nessa data. Datas com horários: {dates.map(d => formatDateLabel(d).split(',')[1]?.trim() || d).slice(0, 6).join(', ')}{dates.length > 6 ? '…' : ''}.</p>
+        )}
+      </div>
+
+      {chosenDate && byDate[chosenDate] && (
+        <div className="card" style={{marginTop: 14}}>
+          <p style={{margin: '0 0 10px', fontWeight: 700}}>Horários disponíveis</p>
           <div className="slot-grid">
-            {byDate[date].map(s => (
+            {byDate[chosenDate].map(s => (
               <button
                 key={s.id}
                 className={"slot-btn" + (s.status === 'booked' ? ' booked' : '') + (selected && selected.id === s.id ? ' selected' : '')}
@@ -299,11 +469,14 @@ function ClienteView({ slots }) {
               </button>
             ))}
           </div>
+          {byDate[chosenDate].every(s => s.status === 'booked') && (
+            <div className="empty" style={{marginTop: 6}}>Todos os horários desse dia já foram reservados.</div>
+          )}
         </div>
-      ))}
+      )}
 
       {selected && (
-        <div className="card" style={{marginTop: 24}}>
+        <div className="card" style={{marginTop: 14}}>
           <p style={{margin: '0 0 4px', fontWeight: 700}}>Confirmar visita: {formatDateLabel(selected.date)} às {selected.time}</p>
           <label>Seu nome</label>
           <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Nome completo" />
@@ -324,19 +497,48 @@ function ClienteView({ slots }) {
   );
 }
 
-function AdminView({ slots }) {
+function AdminView({ slots, onBack }) {
   const [unlocked, setUnlocked] = useState(false);
+  const [currentUser, setCurrentUser] = useState('');
+  const [user, setUser] = useState('');
   const [pass, setPass] = useState('');
-  const [passError, setPassError] = useState(false);
+  const [passError, setPassError] = useState('');
+  const [checking, setChecking] = useState(false);
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [pendingTimes, setPendingTimes] = useState([]);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState('agenda');
+  const [dateMode, setDateMode] = useState('single'); // 'single' | 'range'
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]); // seg–sex por padrão
+  const [rangeMsg, setRangeMsg] = useState('');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedSlots, setSelectedSlots] = useState([]);
 
-  function tryUnlock() {
-    if (pass === ADMIN_PASS) { setUnlocked(true); setPassError(false); }
-    else setPassError(true);
+  async function log(action) {
+    try { await window.firebaseApi.addLog(currentUser || user || 'desconhecido', action); } catch (e) {}
+  }
+
+  async function tryUnlock() {
+    setChecking(true);
+    setPassError('');
+    try {
+      await window.firebaseApi.ensureSeedAdmin();
+      const ok = await window.firebaseApi.verifyAdmin(user, pass);
+      if (ok) {
+        const uname = user.trim();
+        setCurrentUser(uname);
+        setUnlocked(true);
+        await window.firebaseApi.addLog(uname, 'Acessou o painel administrativo');
+      } else {
+        setPassError('Usuário ou senha incorretos.');
+      }
+    } catch (e) {
+      setPassError('Erro ao validar: ' + e.message);
+    }
+    setChecking(false);
   }
 
   function addTimeToList() {
@@ -358,14 +560,86 @@ function AdminView({ slots }) {
     const toAdd = pendingTimes.filter(t => !existing.has(t));
     if (toAdd.length > 0) {
       await window.firebaseApi.addSlots(date, toAdd);
+      await log(`Adicionou ${toAdd.length} horário(s) em ${date}: ${toAdd.join(', ')}`);
     }
     setPendingTimes([]);
     setBusy(false);
   }
 
-  async function removeSlot(id) {
+  function toggleWeekday(d) {
+    setWeekdays(weekdays.includes(d) ? weekdays.filter(x => x !== d) : [...weekdays, d].sort());
+  }
+
+  function datesInRange() {
+    if (!startDate || !endDate) return [];
+    const out = [];
+    let cur = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T00:00:00');
+    while (cur <= end) {
+      // getDay(): 0=domingo … 6=sábado
+      if (weekdays.includes(cur.getDay())) {
+        out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`);
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+    return out;
+  }
+
+  async function saveRange() {
+    setRangeMsg('');
+    const targetDates = datesInRange();
+    if (targetDates.length === 0 || pendingTimes.length === 0) return;
     setBusy(true);
-    await window.firebaseApi.removeSlot(id);
+    let totalAdded = 0;
+    for (const d of targetDates) {
+      const existing = new Set(slots.filter(s => s.date === d).map(s => s.time));
+      const toAdd = pendingTimes.filter(t => !existing.has(t));
+      if (toAdd.length > 0) {
+        await window.firebaseApi.addSlots(d, toAdd);
+        totalAdded += toAdd.length;
+      }
+    }
+    await log(`Adicionou ${totalAdded} horário(s) em ${targetDates.length} dia(s) (${targetDates[0]} a ${targetDates[targetDates.length - 1]}): ${pendingTimes.join(', ')}`);
+    setRangeMsg(`${totalAdded} horário(s) criado(s) em ${targetDates.length} dia(s).`);
+    setPendingTimes([]);
+    setBusy(false);
+  }
+
+  async function removeSlot(s) {
+    setBusy(true);
+    if (s.status === 'booked') {
+      await window.firebaseApi.releaseSlot(s.id);
+      await log(`Liberou o horário ${s.date} ${s.time} (estava com ${s.clientName || 'tutor'})`);
+    } else {
+      await window.firebaseApi.removeSlot(s.id);
+      await log(`Removeu o horário ${s.date} ${s.time}`);
+    }
+    setBusy(false);
+  }
+
+  function toggleSelectSlot(id) {
+    setSelectedSlots(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  async function removeSelectedSlots(list) {
+    const chosen = list.filter(s => selectedSlots.includes(s.id));
+    if (chosen.length === 0) return;
+    const okConfirm = window.confirm(`Remover/liberar ${chosen.length} horário(s) selecionado(s)?`);
+    if (!okConfirm) return;
+    setBusy(true);
+    let removed = 0, released = 0;
+    for (const s of chosen) {
+      if (s.status === 'booked') {
+        await window.firebaseApi.releaseSlot(s.id);
+        released++;
+      } else {
+        await window.firebaseApi.removeSlot(s.id);
+        removed++;
+      }
+    }
+    await log(`Ação em lote: removeu ${removed} horário(s) livre(s) e liberou ${released} ocupado(s)`);
+    setSelectedSlots([]);
+    setSelectMode(false);
     setBusy(false);
   }
 
@@ -373,10 +647,12 @@ function AdminView({ slots }) {
     return (
       <div className="lock-screen">
         <div className="card">
-          <label>Senha de administração</label>
-          <input type="password" value={pass} onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && tryUnlock()} placeholder="Digite a senha" />
-          {passError && <p style={{color: '#B5562D', fontSize: 13, marginTop: 8}}>Senha incorreta.</p>}
-          <button className="btn btn-primary" style={{marginTop: 14, width: '100%'}} onClick={tryUnlock}>Entrar</button>
+          <label>Usuário</label>
+          <input type="text" value={user} onChange={e => setUser(e.target.value)} onKeyDown={e => e.key === 'Enter' && tryUnlock()} placeholder="Digite o usuário" autoComplete="username" />
+          <label style={{marginTop: 12}}>Senha de administração</label>
+          <input type="password" value={pass} onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && tryUnlock()} placeholder="Digite a senha" autoComplete="current-password" />
+          {passError && <p style={{color: '#B5562D', fontSize: 13, marginTop: 8}}>{passError}</p>}
+          <button className="btn btn-primary" style={{marginTop: 14, width: '100%'}} disabled={checking} onClick={tryUnlock}>{checking ? 'Verificando…' : 'Entrar'}</button>
         </div>
       </div>
     );
@@ -386,24 +662,74 @@ function AdminView({ slots }) {
 
   return (
     <div>
+      <div style={{display: 'flex', justifyContent: 'flex-end', marginBottom: 14}}>
+        <button className="btn btn-ghost on-card" onClick={() => { setUnlocked(false); setPass(''); setUser(''); setCurrentUser(''); setView('agenda'); }}>Sair</button>
+      </div>
+
       <div className="subtabs">
         <div className={"subtab" + (view === 'agenda' ? ' active' : '')} onClick={() => setView('agenda')}>Agenda</div>
         <div className={"subtab" + (view === 'gerenciar' ? ' active' : '')} onClick={() => setView('gerenciar')}>Gerenciar horários</div>
+        <div className={"subtab" + (view === 'usuarios' ? ' active' : '')} onClick={() => setView('usuarios')}>Usuários</div>
+        <div className={"subtab" + (view === 'minhasenha' ? ' active' : '')} onClick={() => setView('minhasenha')}>Minha senha</div>
+        <div className={"subtab" + (view === 'logs' ? ' active' : '')} onClick={() => setView('logs')}>Logs</div>
       </div>
 
-      {view === 'agenda' ? (
-        <AgendaView slots={sorted} />
-      ) : (
+      {view === 'agenda' && <AgendaView slots={sorted} />}
+
+      {view === 'usuarios' && <UsersView currentUser={currentUser} onLog={log} />}
+
+      {view === 'minhasenha' && <MyPasswordView currentUser={currentUser} onLog={log} />}
+
+      {view === 'logs' && <LogsView />}
+
+      {view === 'gerenciar' && (
         <div>
           <div className="card">
             <p style={{margin: '0 0 4px', fontWeight: 700}}>Liberar horários</p>
-            <p className="meta" style={{marginBottom: 10}}>Escolha a data, adicione um ou vários horários à lista e depois salve todos de uma vez.</p>
-            <label>Data</label>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} />
-            <label>Horário</label>
+            <p className="meta" style={{marginBottom: 12}}>Adicione horários para um único dia ou para vários dias de uma vez (ex.: segunda a sexta).</p>
+
+            <div className="subtabs on-card" style={{marginBottom: 14}}>
+              <div className={"subtab" + (dateMode === 'single' ? ' active' : '')} onClick={() => { setDateMode('single'); setRangeMsg(''); }}>Um dia</div>
+              <div className={"subtab" + (dateMode === 'range' ? ' active' : '')} onClick={() => { setDateMode('range'); setRangeMsg(''); }}>Vários dias</div>
+            </div>
+
+            {dateMode === 'single' ? (
+              <div>
+                <label>Data</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+              </div>
+            ) : (
+              <div>
+                <div className="row">
+                  <div style={{flex: 1}}>
+                    <label>De</label>
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                  </div>
+                  <div style={{flex: 1}}>
+                    <label>Até</label>
+                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                  </div>
+                </div>
+                <label>Dias da semana</label>
+                <div className="weekday-row">
+                  {[['Dom',0],['Seg',1],['Ter',2],['Qua',3],['Qui',4],['Sex',5],['Sáb',6]].map(([lbl, d]) => (
+                    <span
+                      key={d}
+                      className={"weekday-chip" + (weekdays.includes(d) ? ' active' : '')}
+                      onClick={() => toggleWeekday(d)}
+                    >{lbl}</span>
+                  ))}
+                </div>
+                {startDate && endDate && (
+                  <p className="meta" style={{marginTop: 8}}>{datesInRange().length} dia(s) selecionado(s) no período.</p>
+                )}
+              </div>
+            )}
+
+            <label style={{marginTop: 12}}>Horário</label>
             <div className="row">
               <input type="time" value={time} onChange={e => setTime(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTimeToList()} />
-              <button className="btn btn-ghost" style={{flex: '0 0 auto'}} disabled={!time} onClick={addTimeToList}>+ Adicionar à lista</button>
+              <button className="btn btn-ghost on-card" style={{flex: '0 0 auto'}} disabled={!time} onClick={addTimeToList}>+ Adicionar à lista</button>
             </div>
 
             {pendingTimes.length > 0 && (
@@ -414,28 +740,82 @@ function AdminView({ slots }) {
               </div>
             )}
 
-            <button
-              className="btn btn-primary"
-              style={{marginTop: 16}}
-              disabled={busy || !date || pendingTimes.length === 0}
-              onClick={saveAllTimes}
-            >
-              {busy ? 'Salvando…' : `Salvar ${pendingTimes.length || ''} horário${pendingTimes.length === 1 ? '' : 's'}`.trim()}
-            </button>
+            {dateMode === 'single' ? (
+              <button
+                className="btn btn-primary"
+                style={{marginTop: 16}}
+                disabled={busy || !date || pendingTimes.length === 0}
+                onClick={saveAllTimes}
+              >
+                {busy ? 'Salvando…' : `Salvar ${pendingTimes.length || ''} horário${pendingTimes.length === 1 ? '' : 's'}`.trim()}
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary"
+                style={{marginTop: 16}}
+                disabled={busy || !startDate || !endDate || weekdays.length === 0 || pendingTimes.length === 0 || datesInRange().length === 0}
+                onClick={saveRange}
+              >
+                {busy ? 'Salvando…' : `Salvar em ${datesInRange().length} dia(s)`}
+              </button>
+            )}
+            {rangeMsg && <p style={{color: '#047857', fontSize: 13, marginTop: 10}}>{rangeMsg}</p>}
           </div>
 
           <div className="card">
-            <p style={{margin: '0 0 10px', fontWeight: 700}}>Horários cadastrados ({sorted.length})</p>
+            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap'}}>
+              <p style={{margin: 0, fontWeight: 700}}>Horários cadastrados ({sorted.length})</p>
+              {sorted.length > 0 && (
+                <button
+                  className="btn btn-ghost on-card"
+                  style={{flex: '0 0 auto'}}
+                  onClick={() => { setSelectMode(!selectMode); setSelectedSlots([]); }}
+                >
+                  {selectMode ? 'Cancelar seleção' : 'Selecionar vários'}
+                </button>
+              )}
+            </div>
+
+            {selectMode && sorted.length > 0 && (
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: '8px 0 12px', borderBottom: '1px solid #DCEDE8', marginBottom: 6}}>
+                <label style={{display: 'flex', alignItems: 'center', gap: 8, margin: 0, fontWeight: 600, cursor: 'pointer'}}>
+                  <input
+                    type="checkbox"
+                    checked={selectedSlots.length === sorted.length && sorted.length > 0}
+                    onChange={e => setSelectedSlots(e.target.checked ? sorted.map(s => s.id) : [])}
+                  />
+                  Selecionar todos ({selectedSlots.length})
+                </label>
+                <button
+                  className="btn btn-danger"
+                  style={{flex: '0 0 auto'}}
+                  disabled={busy || selectedSlots.length === 0}
+                  onClick={() => removeSelectedSlots(sorted)}
+                >
+                  {busy ? 'Processando…' : `Remover ${selectedSlots.length || ''} selecionado${selectedSlots.length === 1 ? '' : 's'}`.trim()}
+                </button>
+              </div>
+            )}
+
             {sorted.length === 0 && <div className="empty">Nenhum horário cadastrado ainda.</div>}
             {sorted.map(s => (
               <div key={s.id} className="admin-slot-row">
-                <div>
-                  <div>{formatDateLabel(s.date)} · {s.time}</div>
-                  {s.status === 'booked' && <div className="meta">Tutor: {s.clientName} · Animal: {s.animalName}</div>}
+                <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+                  {selectMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedSlots.includes(s.id)}
+                      onChange={() => toggleSelectSlot(s.id)}
+                    />
+                  )}
+                  <div>
+                    <div>{formatDateLabel(s.date)} · {s.time}</div>
+                    {s.status === 'booked' && <div className="meta">Tutor: {s.clientName} · Animal: {s.animalName}</div>}
+                  </div>
                 </div>
                 <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
                   <span className={"tag " + (s.status === 'booked' ? 'tag-booked' : 'tag-free')}>{s.status === 'booked' ? 'Ocupado' : 'Livre'}</span>
-                  <button className="btn btn-danger" onClick={() => removeSlot(s.id)}>Remover</button>
+                  {!selectMode && <button className="btn btn-danger" onClick={() => removeSlot(s)}>{s.status === 'booked' ? 'Liberar horário' : 'Remover'}</button>}
                 </div>
               </div>
             ))}
@@ -443,6 +823,178 @@ function AdminView({ slots }) {
           <p className="small-note">Os dados ficam salvos no Realtime Database (Firebase) e são compartilhados entre todos que acessam este link.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function MyPasswordView({ currentUser, onLog }) {
+  const [cur, setCur] = useState('');
+  const [nw, setNw] = useState('');
+  const [conf, setConf] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+
+  async function submit() {
+    setMsg(''); setErr('');
+    if (!cur || !nw || !conf) { setErr('Preencha todos os campos.'); return; }
+    if (nw !== conf) { setErr('A nova senha e a confirmação não coincidem.'); return; }
+    if (nw.length < 4) { setErr('A nova senha deve ter ao menos 4 caracteres.'); return; }
+    setBusy(true);
+    try {
+      const ok = await window.firebaseApi.verifyAdmin(currentUser, cur);
+      if (!ok) { setErr('A senha atual está incorreta.'); setBusy(false); return; }
+      await window.firebaseApi.changePassword(currentUser, nw);
+      await onLog('Alterou a própria senha');
+      setMsg('Senha alterada com sucesso.');
+      setCur(''); setNw(''); setConf('');
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  return (
+    <div className="card">
+      <p style={{margin: '0 0 4px', fontWeight: 700}}>Alterar minha senha</p>
+      <p className="meta" style={{marginBottom: 12}}>Conectado como <strong>{currentUser}</strong>.</p>
+      <label>Senha atual</label>
+      <input type="password" value={cur} onChange={e => setCur(e.target.value)} placeholder="Digite sua senha atual" autoComplete="current-password" />
+      <label>Nova senha</label>
+      <input type="password" value={nw} onChange={e => setNw(e.target.value)} placeholder="Nova senha" autoComplete="new-password" />
+      <label>Confirmar nova senha</label>
+      <input type="password" value={conf} onChange={e => setConf(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} placeholder="Repita a nova senha" autoComplete="new-password" />
+      {err && <p style={{color: '#B5562D', fontSize: 13, marginTop: 10}}>{err}</p>}
+      {msg && <p style={{color: '#047857', fontSize: 13, marginTop: 10}}>{msg}</p>}
+      <button className="btn btn-primary" style={{marginTop: 16}} disabled={busy} onClick={submit}>{busy ? 'Salvando…' : 'Salvar nova senha'}</button>
+    </div>
+  );
+}
+
+function UsersView({ currentUser, onLog }) {
+  const [admins, setAdmins] = useState(null);
+  const [newUser, setNewUser] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [pwTarget, setPwTarget] = useState('');
+  const [pwValue, setPwValue] = useState('');
+
+  async function reload() {
+    try { setAdmins(await window.firebaseApi.listAdmins()); } catch (e) { setErr(e.message); }
+  }
+  useEffect(() => { reload(); }, []);
+
+  async function create() {
+    setErr(''); setMsg('');
+    if (!newUser.trim() || !newPass) { setErr('Preencha usuário e senha.'); return; }
+    setBusy(true);
+    try {
+      await window.firebaseApi.createAdmin(newUser, newPass);
+      await onLog(`Criou o usuário "${newUser.trim()}"`);
+      setMsg(`Usuário "${newUser.trim()}" criado.`);
+      setNewUser(''); setNewPass('');
+      await reload();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  async function changePw(username) {
+    setErr(''); setMsg('');
+    if (!pwValue) { setErr('Digite a nova senha.'); return; }
+    setBusy(true);
+    try {
+      await window.firebaseApi.changePassword(username, pwValue);
+      await onLog(`Trocou a senha do usuário "${username}"`);
+      setMsg(`Senha de "${username}" atualizada.`);
+      setPwTarget(''); setPwValue('');
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  async function remove(username) {
+    setErr(''); setMsg('');
+    if (admins && admins.length <= 1) { setErr('Não é possível excluir o único usuário restante.'); return; }
+    if (username.toLowerCase() === currentUser.toLowerCase()) { setErr('Você não pode excluir o usuário com que está logado.'); return; }
+    setBusy(true);
+    try {
+      await window.firebaseApi.deleteAdmin(username);
+      await onLog(`Excluiu o usuário "${username}"`);
+      setMsg(`Usuário "${username}" excluído.`);
+      await reload();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  return (
+    <div>
+      <div className="card">
+        <p style={{margin: '0 0 4px', fontWeight: 700}}>Novo usuário</p>
+        <p className="meta" style={{marginBottom: 10}}>Crie um novo administrador. A senha é guardada com hash no banco, nunca em texto puro.</p>
+        <label>Usuário</label>
+        <input type="text" value={newUser} onChange={e => setNewUser(e.target.value)} placeholder="ex.: maria" />
+        <label>Senha</label>
+        <input type="password" value={newPass} onChange={e => setNewPass(e.target.value)} placeholder="Defina uma senha" />
+        <button className="btn btn-primary" style={{marginTop: 14}} disabled={busy} onClick={create}>Criar usuário</button>
+      </div>
+
+      {(msg || err) && (
+        <p style={{color: err ? '#B5562D' : '#047857', fontSize: 13, margin: '0 0 12px'}}>{err || msg}</p>
+      )}
+
+      <div className="card">
+        <p style={{margin: '0 0 10px', fontWeight: 700}}>Administradores ({admins ? admins.length : '…'})</p>
+        {!admins && <div className="empty">Carregando…</div>}
+        {admins && admins.length === 0 && <div className="empty">Nenhum usuário cadastrado.</div>}
+        {admins && admins.map(a => (
+          <div key={a.key} className="admin-slot-row" style={{flexWrap: 'wrap'}}>
+            <div>
+              <div>{a.username} {a.username.toLowerCase() === currentUser.toLowerCase() && <span className="meta">(você)</span>}</div>
+              {a.createdAt && <div className="meta">Criado em {formatTimestamp(a.createdAt)}</div>}
+            </div>
+            <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+              <button className="btn btn-ghost" style={{flex: '0 0 auto'}} onClick={() => { setPwTarget(pwTarget === a.username ? '' : a.username); setPwValue(''); }}>Trocar senha</button>
+              <button className="btn btn-danger" onClick={() => remove(a.username)}>Excluir</button>
+            </div>
+            {pwTarget === a.username && (
+              <div className="row" style={{width: '100%', marginTop: 8}}>
+                <input type="password" value={pwValue} onChange={e => setPwValue(e.target.value)} placeholder={`Nova senha para ${a.username}`} onKeyDown={e => e.key === 'Enter' && changePw(a.username)} />
+                <button className="btn btn-primary" style={{flex: '0 0 auto'}} disabled={busy} onClick={() => changePw(a.username)}>Salvar</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="small-note">Observação: este app acessa o banco direto do navegador, então a real proteção dos dados depende das Regras de Segurança do Firebase. O hash evita expor senhas, mas para segurança forte use Firebase Authentication.</p>
+    </div>
+  );
+}
+
+function LogsView() {
+  const [logs, setLogs] = useState(null);
+  const [err, setErr] = useState('');
+
+  async function reload() {
+    try { setLogs(await window.firebaseApi.listLogs(200)); } catch (e) { setErr(e.message); }
+  }
+  useEffect(() => { reload(); }, []);
+
+  return (
+    <div className="card">
+      <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10}}>
+        <p style={{margin: 0, fontWeight: 700}}>Registro de atividades</p>
+        <button className="btn btn-ghost" style={{flex: '0 0 auto'}} onClick={reload}>Atualizar</button>
+      </div>
+      {err && <p style={{color: '#B5562D', fontSize: 13}}>{err}</p>}
+      {!logs && <div className="empty">Carregando…</div>}
+      {logs && logs.length === 0 && <div className="empty">Nenhuma atividade registrada ainda.</div>}
+      {logs && logs.map(l => (
+        <div key={l.id} className="admin-slot-row">
+          <div>
+            <div>{l.action}</div>
+            <div className="meta">por {l.actor} · {formatTimestamp(l.at)}</div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -525,7 +1077,10 @@ function AgendaView({ slots }) {
           <p style={{margin: '0 0 6px', fontWeight: 700}}>{formatDateLabel(selected.date)} às {selected.time}</p>
           <p className="meta">Tutor: {selected.clientName}</p>
           <p className="meta">Animal: {selected.animalName}</p>
-          <button className="btn btn-ghost" style={{marginTop: 12}} onClick={() => setSelected(null)}>Fechar</button>
+          <div className="row" style={{marginTop: 12}}>
+            <button className="btn btn-ghost on-card" onClick={() => setSelected(null)}>Fechar</button>
+            <button className="btn btn-danger" onClick={async () => { await window.firebaseApi.releaseSlot(selected.id); setSelected(null); }}>Liberar horário</button>
+          </div>
         </div>
       )}
     </div>
