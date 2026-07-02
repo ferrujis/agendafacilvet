@@ -1,1168 +1,2359 @@
-<script>
-  (function ensureViewport() {
-    if (!document.querySelector('meta[name="viewport"]')) {
-      var m = document.createElement('meta');
-      m.name = 'viewport';
-      m.content = 'width=device-width, initial-scale=1, viewport-fit=cover';
-      (document.head || document.documentElement).appendChild(m);
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Agendamento de Visitas - PetCare Vet</title>
+
+  <style>
+    /* ===== CSS VARIABLES (LIGHT MODE - VERDE E AZUL PASTEL) ===== */
+    :root {
+      /* Fundo e Cartões */
+      --bg-body: #f0f9f8;
+      --bg-card: #ffffff;
+      --bg-input: #f8fdfd;
+      
+      /* Textos */
+      --text-main: #1a3636;
+      --text-muted: #5a8a88;
+      
+      /* Bordas e Foco */
+      --border-color: #c2dfdc;
+      --border-focus: #38b2ac;
+      
+      /* Sombras */
+      --shadow-card: 0 8px 30px rgba(56, 178, 172, 0.08);
+      --shadow-card-hover: 0 12px 40px rgba(56, 178, 172, 0.15);
+      --shadow-btn-primary: 0 4px 14px rgba(44, 122, 123, 0.25);
+      
+      /* Cores de Ação (Cores Principais) */
+      --accent-primary: #2c7a7b;     /* Teal pastel */
+      --accent-primary-light: #38b2ac; /* Teal mais claro */
+      --accent-secondary: #f6ad55;    /* Laranja pastel (contraste quente) */
+      
+      /* Tags e Estados */
+      --bg-tag-free: #c6f6d5;
+      --text-tag-free: #22543d;
+      --bg-tag-booked: #bee3f8;
+      --text-tag-booked: #2a4365;
+      
+      /* Banners */
+      --bg-banner-success: #c6f6d5;
+      --text-banner-success: #22543d;
+      --bg-banner-error: #fed7d7;
+      --text-banner-error: #9b2c2c;
+      
+      /* Popover e Toggles */
+      --popover-shadow: 0 24px 64px -16px rgba(44, 122, 123, 0.3);
+      --bg-popover-close: #e6f3f2;
+      --bg-admin-toggle: #e6f3f2;
+      --bg-subtab: #ffffff;
+      --bg-subtab-hover: #f0f9f8;
+      
+      /* Agenda (Tabela de horários) */
+      --slot-bg: #ffffff;
+      --slot-border: #c2dfdc;
+      --agenda-border: #c2dfdc;
+      --agenda-bg-header: #f0f9f8;
+      --agenda-cell-free: #dcfce7;
+      --agenda-cell-booked: #e0f2fe;
+      --agenda-cell-empty: #f0f9f8;
+      --agenda-cell-booked-hover: #bae6fd;
+      
+      /* Cores dos Ícones */
+      --dark-mode-toggle-color: #1a3636;
+      --bg-pattern: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%2338b2ac' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4c-1.1 0-2-.9-2-2s.9-2 2-2h4c1.1 0 2 .9 2 2s-.9 2-2 2v4c-1.1 0-2 .9-2 2s.9 2 2 2v4c-1.1 0-2 .9-2 2s.9 2 2 2h-4c-1.1 0-2-.9-2-2s.9-2 2-2v-4c-1.1 0-2-.9-2-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
     }
-  })();
-</script>
-<script>
-  const DB_URL = "https://easy-f9cc4-default-rtdb.firebaseio.com";
 
-  async function rtdbGet(path) {
-    const res = await fetch(`${DB_URL}/${path}.json`);
-    if (!res.ok) throw new Error(`Erro ${res.status} ao ler ${path}`);
-    return res.json();
-  }
-  async function rtdbPut(path, value) {
-    const res = await fetch(`${DB_URL}/${path}.json`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(value)
-    });
-    if (!res.ok) throw new Error(`Erro ${res.status} ao salvar ${path}`);
-    return res.json();
-  }
-  async function rtdbPost(path, value) {
-    const res = await fetch(`${DB_URL}/${path}.json`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(value)
-    });
-    if (!res.ok) throw new Error(`Erro ${res.status} ao criar em ${path}`);
-    return res.json();
-  }
-  async function rtdbDelete(path) {
-    const res = await fetch(`${DB_URL}/${path}.json`, { method: 'DELETE' });
-    if (!res.ok) throw new Error(`Erro ${res.status} ao remover ${path}`);
-  }
-
-  function slotsObjToArray(obj) {
-    if (!obj) return [];
-    return Object.keys(obj).map(id => ({ id, ...obj[id] }));
-  }
-
-  let pollHandle = null;
-
-  function getDeviceId() {
-    let id = localStorage.getItem('agenda_device_id');
-    if (!id) {
-      id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
-      localStorage.setItem('agenda_device_id', id);
+    /* ===== DARK MODE VARIABLES (Mantido e refinado) ===== */
+    .dark-mode {
+      --bg-body: #0f172a;
+      --bg-card: #1e293b;
+      --bg-input: #0f172a;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --border-color: #334155;
+      --border-focus: #14b8a6;
+      --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.4);
+      --shadow-card-hover: 0 8px 32px rgba(0, 0, 0, 0.6);
+      --shadow-btn-primary: 0 4px 16px rgba(20, 184, 166, 0.3);
+      --accent-primary: #0f766e;
+      --accent-primary-light: #14b8a6;
+      --accent-secondary: #fbbf24;
+      --bg-tag-free: #064e3b;
+      --text-tag-free: #6ee7b7;
+      --bg-tag-booked: #1e3a8a;
+      --text-tag-booked: #93c5fd;
+      --bg-banner-success: #064e3b;
+      --text-banner-success: #6ee7b7;
+      --bg-banner-error: #7f1d1d;
+      --text-banner-error: #fca5a5;
+      --popover-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.8);
+      --bg-popover-close: #334155;
+      --bg-admin-toggle: #334155;
+      --bg-subtab: #1e293b;
+      --bg-subtab-hover: #334155;
+      --slot-bg: #1e293b;
+      --slot-border: #334155;
+      --agenda-border: #334155;
+      --agenda-bg-header: #0f172a;
+      --agenda-cell-free: #064e3b;
+      --agenda-cell-booked: #1e3a8a;
+      --agenda-cell-empty: #0f172a;
+      --agenda-cell-booked-hover: #1e40af;
+      --dark-mode-toggle-color: #f1f5f9;
+      --bg-pattern: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%233b82f6' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4c-1.1 0-2-.9-2-2s.9-2 2-2h4c1.1 0 2 .9 2 2s-.9 2-2 2v4c-1.1 0-2 .9-2 2s.9 2 2 2v4c-1.1 0-2 .9-2 2s.9 2 2 2h-4c-1.1 0-2-.9-2-2s.9-2 2-2v-4c-1.1 0-2-.9-2-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
     }
-    return id;
-  }
 
-  window.firebaseApi = {
-    getDeviceId,
-    listen(callback) {
-      let stopped = false;
-      async function tick() {
-        if (stopped) return;
-        try {
-          const obj = await rtdbGet('slots');
-          callback(slotsObjToArray(obj));
-          window.dispatchEvent(new CustomEvent('firebase-config-ok'));
-        } catch (e) {
-          console.error("Realtime Database error:", e);
-          window.dispatchEvent(new CustomEvent('firebase-config-error', { detail: e.message }));
-        }
+    /* ===== RESET & BASE ===== */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-body);
+      background-image: var(--bg-pattern);
+      background-attachment: fixed;
+      min-height: 100vh;
+      margin: 0;
+      padding: 0;
+      color: var(--text-main);
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    /* ===== APP CONTAINER ===== */
+    #app-root {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 24px 20px 40px;
+    }
+
+    /* ===== TOPBAR ===== */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: var(--bg-card);
+      padding: 16px 24px;
+      border-radius: 30px;
+      box-shadow: var(--shadow-card);
+      border: 1px solid var(--border-color);
+      position: relative;
+      transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .topbar::before {
+      content: '🦴';
+      position: absolute;
+      top: -12px;
+      left: 20px;
+      font-size: 22px;
+      opacity: 0.2;
+      transform: rotate(-15deg);
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .brand-icon {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-light));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(44, 122, 123, 0.25);
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    .brand-icon::after {
+      content: '🐾';
+      position: absolute;
+      bottom: -8px;
+      right: -8px;
+      font-size: 18px;
+      background: var(--accent-secondary);
+      border-radius: 50%;
+      padding: 2px;
+    }
+
+    .brand-icon svg {
+      width: 30px;
+      height: 30px;
+    }
+
+    .topbar-title {
+      font-weight: 700;
+      font-size: 26px;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: color 0.3s ease;
+    }
+
+    .topbar-title span {
+      font-size: 24px;
+    }
+
+    .topbar-sub {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* ===== TOGGLES & BUTTONS TOPBAR ===== */
+    .topbar-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .theme-toggle,
+    .admin-toggle {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: none;
+      background: var(--bg-admin-toggle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+      color: var(--dark-mode-toggle-color);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+      border: 1px solid var(--border-color);
+    }
+
+    .theme-toggle:hover,
+    .admin-toggle:hover {
+      background: var(--border-color);
+      transform: scale(1.08) rotate(5deg);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .theme-toggle svg,
+    .admin-toggle svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    /* ===== CARDS ===== */
+    .card {
+      background: var(--bg-card);
+      border-radius: 28px;
+      padding: 28px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow-card);
+      border: 1px solid var(--border-color);
+      transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, transform 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-card-hover);
+      transform: translateY(-2px);
+    }
+
+    .card::before {
+      content: '🐾';
+      position: absolute;
+      bottom: -10px;
+      right: -10px;
+      font-size: 80px;
+      opacity: 0.04;
+      transform: rotate(15deg);
+      pointer-events: none;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-sub {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+      line-height: 1.5;
+    }
+
+    /* ===== FORM ELEMENTS ===== */
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-top: 18px;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"],
+    input[type="tel"],
+    input[type="date"],
+    input[type="time"],
+    input[type="password"],
+    .day-select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      font-size: 15px;
+      font-family: inherit;
+      background: var(--bg-input);
+      color: var(--text-main);
+      transition: border-color 0.2s, box-shadow 0.2s, background-color 0.3s ease, color 0.3s ease;
+    }
+
+    input:focus,
+    .day-select:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 4px rgba(56, 178, 172, 0.15);
+      background: var(--bg-card);
+    }
+
+    .input-group {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .input-group>* {
+      flex: 1;
+    }
+
+    .input-group .btn {
+      flex: 0 0 auto;
+    }
+
+    /* ===== BUTTONS ===== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 50px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-light));
+      color: #fff;
+      box-shadow: var(--shadow-btn-primary);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 24px rgba(56, 178, 172, 0.4);
+    }
+
+    .btn-secondary {
+      background: var(--accent-secondary);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.25);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 24px rgba(245, 158, 11, 0.3);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--text-main);
+      border: 2px solid var(--border-color);
+    }
+
+    .btn-outline:hover:not(:disabled) {
+      background: var(--bg-admin-toggle);
+      border-color: var(--border-focus);
+    }
+
+    .btn-danger {
+      background: var(--bg-banner-error);
+      color: var(--text-banner-error);
+      border: 2px solid var(--bg-banner-error);
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      opacity: 0.8;
+    }
+
+    .btn-sm {
+      padding: 8px 16px;
+      font-size: 13px;
+      border-radius: 40px;
+    }
+
+    .btn-block {
+      width: 100%;
+      justify-content: center;
+    }
+
+    /* ===== SLOT GRID ===== */
+    .slot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+      gap: 10px;
+    }
+
+    .slot-btn {
+      padding: 14px 10px;
+      border-radius: 20px;
+      border: 2px solid var(--border-color);
+      background: var(--slot-bg);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      color: var(--text-main);
+      position: relative;
+    }
+
+    .slot-btn::after {
+      content: '🐶';
+      position: absolute;
+      bottom: 2px;
+      right: 6px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .slot-btn:hover:not(:disabled)::after {
+      opacity: 0.6;
+    }
+
+    .slot-btn:hover:not(:disabled) {
+      border-color: var(--border-focus);
+      transform: translateY(-3px);
+      box-shadow: 0 6px 16px rgba(56, 178, 172, 0.15);
+    }
+
+    .slot-btn.booked {
+      background: var(--bg-input);
+      color: var(--text-muted);
+      border-color: var(--border-color);
+      cursor: not-allowed;
+      text-decoration: line-through;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+
+    .slot-btn.booked::after {
+      content: '😔';
+      opacity: 0.5;
+    }
+
+    .slot-btn.selected {
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-light));
+      color: #fff;
+      border-color: transparent;
+      transform: translateY(-3px);
+      box-shadow: 0 6px 18px rgba(56, 178, 172, 0.3);
+    }
+
+    .slot-btn.selected::after {
+      content: '🐾';
+      opacity: 1 !important;
+      color: #fff;
+    }
+
+    /* ===== BANNERS ===== */
+    .banner {
+      padding: 16px 20px;
+      border-radius: 20px;
+      font-size: 15px;
+      font-weight: 500;
+      margin-bottom: 18px;
+      line-height: 1.5;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .banner-success {
+      background: var(--bg-banner-success);
+      color: var(--text-banner-success);
+      border-left: 6px solid #38a169;
+    }
+
+    .banner-error {
+      background: var(--bg-banner-error);
+      color: var(--text-banner-error);
+      border-left: 6px solid #e53e3e;
+    }
+
+    .banner-info {
+      background: #bee3f8;
+      color: #2a4365;
+      border-left: 6px solid #3182ce;
+    }
+    .dark-mode .banner-info {
+      background: #1e3a8a;
+      color: #93c5fd;
+      border-left: 6px solid #3b82f6;
+    }
+
+    /* ===== TAGS ===== */
+    .tag {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .tag-free {
+      background: var(--bg-tag-free);
+      color: var(--text-tag-free);
+      border: 1px solid var(--bg-tag-free);
+    }
+
+    .tag-booked {
+      background: var(--bg-tag-booked);
+      color: var(--text-tag-booked);
+      border: 1px solid var(--bg-tag-booked);
+    }
+
+    /* ===== AGENDA TABLE ===== */
+    .agenda-card {
+      overflow-x: auto;
+      padding: 20px;
+    }
+
+    .agenda-grid {
+      display: grid;
+      gap: 2px;
+      background: var(--agenda-border);
+      border: 2px solid var(--agenda-border);
+      border-radius: 20px;
+      overflow: hidden;
+      min-width: 520px;
+    }
+
+    .agenda-corner {
+      background: var(--agenda-bg-header);
+    }
+
+    .agenda-day-head {
+      background: var(--agenda-bg-header);
+      padding: 12px 8px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: capitalize;
+      color: var(--text-main);
+      border-bottom: 1px solid var(--agenda-border);
+    }
+
+    .agenda-day-num {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .agenda-time-label {
+      background: var(--agenda-bg-header);
+      padding: 14px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-right: 1px solid var(--agenda-border);
+    }
+
+    .agenda-cell {
+      background: var(--bg-card);
+      min-height: 54px;
+      padding: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      line-height: 1.3;
+      overflow: hidden;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .agenda-cell-empty {
+      background: var(--agenda-cell-empty);
+    }
+
+    .agenda-cell-free {
+      background: var(--agenda-cell-free);
+      color: var(--text-tag-free);
+      position: relative;
+    }
+
+    .agenda-cell-free::after {
+      content: '🐾';
+      position: absolute;
+      top: 2px;
+      right: 4px;
+      font-size: 12px;
+      opacity: 0.3;
+    }
+
+    .agenda-cell-booked {
+      background: var(--agenda-cell-booked);
+      color: var(--text-tag-booked);
+      cursor: pointer;
+      position: relative;
+    }
+
+    .agenda-cell-booked::after {
+      content: '🐱';
+      position: absolute;
+      top: 2px;
+      right: 4px;
+      font-size: 12px;
+      opacity: 0.5;
+    }
+
+    .agenda-cell-booked:hover {
+      background: var(--agenda-cell-booked-hover);
+    }
+
+    .agenda-cell-open {
+      outline: 3px solid var(--accent-secondary);
+      outline-offset: -2px;
+    }
+
+    /* ===== POPOVER ===== */
+    .popover-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      background: rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(4px);
+    }
+    .dark-mode .popover-backdrop {
+      background: rgba(0, 0, 0, 0.7);
+    }
+
+    .popover {
+      position: fixed;
+      z-index: 41;
+      width: 300px;
+      max-width: calc(100vw - 24px);
+      background: var(--bg-card);
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: var(--popover-shadow);
+      animation: popIn 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+      border: 1px solid var(--border-color);
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+
+    @keyframes popIn {
+      from {
+        opacity: 0;
+        transform: scale(0.92) translateY(12px);
       }
-      tick();
-      pollHandle = setInterval(tick, 3000);
-      return () => { stopped = true; clearInterval(pollHandle); };
-    },
-    async addSlot(date, time) {
-      await rtdbPost('slots', { date, time, status: 'available' });
-    },
-    async removeSlot(id) {
-      await rtdbDelete(`slots/${id}`);
-    },
-    async releaseSlot(id) {
-      const current = await rtdbGet(`slots/${id}`);
-      if (!current) return;
-      await rtdbPut(`slots/${id}`, { date: current.date, time: current.time, status: 'available' });
-    },
-    async bookSlot(id, clientName, animalName) {
-      const deviceId = getDeviceId();
-      const current = await rtdbGet(`slots/${id}`);
-      if (!current || current.status === 'booked') {
-        throw new Error("already-booked");
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
       }
-      const allSlots = slotsObjToArray(await rtdbGet('slots'));
-      const alreadyBookedToday = allSlots.some(s => s.date === current.date && s.status === 'booked' && s.deviceId === deviceId);
-      if (alreadyBookedToday) {
-        throw new Error("one-per-day");
+    }
+
+    .popover-close {
+      position: absolute;
+      top: 12px;
+      right: 14px;
+      border: none;
+      background: var(--bg-popover-close);
+      font-size: 20px;
+      line-height: 1;
+      color: var(--text-muted);
+      cursor: pointer;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+
+    .popover-close:hover {
+      background: var(--border-color);
+      color: var(--text-main);
+    }
+
+    /* ===== CHIPS ===== */
+    .chip-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-tag-booked);
+      color: var(--text-tag-booked);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 6px 12px 6px 16px;
+      border-radius: 999px;
+      border: 1px solid var(--bg-tag-booked);
+    }
+
+    .chip-x {
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 0 2px;
+      opacity: 0.6;
+      transition: opacity 0.15s;
+      background: var(--bg-tag-booked);
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .chip-x:hover {
+      opacity: 1;
+    }
+
+    /* ===== WEEKDAY SELECTOR ===== */
+    .weekday-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 10px 0 4px;
+    }
+
+    .weekday-chip {
+      padding: 8px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 999px;
+      border: 2px solid var(--border-color);
+      background: var(--bg-card);
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s;
+    }
+
+    .weekday-chip:hover {
+      border-color: var(--border-focus);
+    }
+
+    .weekday-chip.active {
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-light));
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 4px 12px rgba(56, 178, 172, 0.2);
+    }
+
+    /* ===== ADMIN ROW ===== */
+    .admin-slot-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 15px;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .admin-slot-row:last-child {
+      border-bottom: none;
+    }
+
+    .admin-slot-row .actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* ===== SUBTABS ===== */
+    .subtabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .subtab {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 999px;
+      border: 2px solid var(--border-color);
+      background: var(--bg-subtab);
+      transition: all 0.15s;
+    }
+
+    .subtab:hover {
+      border-color: var(--border-focus);
+      background: var(--bg-subtab-hover);
+      color: var(--text-main);
+    }
+
+    .subtab.active {
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-light));
+      border-color: transparent;
+      box-shadow: 0 4px 12px rgba(56, 178, 172, 0.2);
+    }
+
+    /* ===== UTILITIES ===== */
+    .flex { display: flex; }
+    .flex-center { align-items: center; justify-content: center; }
+    .gap-8 { gap: 8px; }
+    .gap-12 { gap: 12px; }
+    .mt-8 { margin-top: 8px; }
+    .mt-12 { margin-top: 12px; }
+    .mt-16 { margin-top: 16px; }
+    .mb-8 { margin-bottom: 8px; }
+    .mb-12 { margin-bottom: 12px; }
+    .mb-16 { margin-bottom: 16px; }
+    .text-muted { color: var(--text-muted); font-size: 14px; }
+    .text-sm { font-size: 14px; }
+    .fw-700 { font-weight: 700; }
+    .w-full { width: 100%; }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 600px) {
+      #app-root {
+        padding: 12px 10px 32px;
       }
-      await rtdbPut(`slots/${id}`, { ...current, status: 'booked', clientName, animalName, deviceId });
-      return true;
-    },
-    async addSlots(date, times) {
-      const obj = {};
-      times.forEach(t => {
-        const key = `${date}_${t}`.replace(/[^a-zA-Z0-9_]/g, '');
-        obj[key] = { date, time: t, status: 'available' };
-      });
-      const res = await fetch(`${DB_URL}/slots.json`, {
-        method: 'PATCH',
+
+      .topbar {
+        padding: 12px 16px;
+        border-radius: 20px;
+      }
+
+      .topbar-title {
+        font-size: 20px;
+      }
+
+      .brand-icon {
+        width: 44px;
+        height: 44px;
+      }
+
+      .brand-icon svg {
+        width: 22px;
+        height: 22px;
+      }
+
+      .card {
+        padding: 18px;
+        border-radius: 20px;
+      }
+
+      .slot-grid {
+        grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+      }
+
+      .slot-btn {
+        padding: 12px 8px;
+        font-size: 14px;
+      }
+
+      .admin-slot-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+      }
+
+      .admin-slot-row .actions {
+        justify-content: flex-start;
+        width: 100%;
+      }
+
+      .admin-slot-row .actions .btn {
+        flex: 1;
+      }
+
+      .input-group {
+        flex-direction: column;
+      }
+
+      .input-group>* {
+        width: 100%;
+      }
+
+      .subtabs {
+        gap: 8px;
+      }
+
+      .subtab {
+        padding: 8px 14px;
+        font-size: 13px;
+      }
+
+      .weekday-chip {
+        padding: 6px 12px;
+        font-size: 13px;
+      }
+
+      .agenda-grid {
+        min-width: 320px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== FIREBASE API (mesmo código original) ===== -->
+  <script>
+    (function ensureViewport() {
+      if (!document.querySelector('meta[name="viewport"]')) {
+        var m = document.createElement('meta');
+        m.name = 'viewport';
+        m.content = 'width=device-width, initial-scale=1, viewport-fit=cover';
+        (document.head || document.documentElement).appendChild(m);
+      }
+    })();
+  </script>
+
+  <script>
+    const DB_URL = "https://easy-f9cc4-default-rtdb.firebaseio.com";
+
+    async function rtdbGet(path) {
+      const res = await fetch(`${DB_URL}/${path}.json`);
+      if (!res.ok) throw new Error(`Erro ${res.status} ao ler ${path}`);
+      return res.json();
+    }
+    async function rtdbPut(path, value) {
+      const res = await fetch(`${DB_URL}/${path}.json`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(obj)
+        body: JSON.stringify(value)
       });
-      if (!res.ok) throw new Error(`Erro ${res.status} ao adicionar horários`);
-    },
-
-    async sha256(text) {
-      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    },
-    _userKey(username) {
-      return String(username).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
-    },
-    async listAdmins() {
-      const obj = await rtdbGet('admins');
-      if (!obj) return [];
-      return Object.keys(obj).map(k => ({ key: k, username: obj[k].username || k, createdAt: obj[k].createdAt || null }));
-    },
-    async ensureSeedAdmin() {
-
-      const obj = await rtdbGet('admins');
-      if (obj && Object.keys(obj).length > 0) return false;
-      const key = this._userKey('admin');
-      const hash = await this.sha256('admin123');
-      await rtdbPut(`admins/${key}`, { username: 'admin', hash, createdAt: Date.now() });
-      return true;
-    },
-    async verifyAdmin(username, password) {
-      const key = this._userKey(username);
-      const rec = await rtdbGet(`admins/${key}`);
-      if (!rec) return false;
-      const hash = await this.sha256(password);
-      return rec.hash === hash;
-    },
-    async createAdmin(username, password) {
-      const key = this._userKey(username);
-      if (!key) throw new Error('Usuário inválido.');
-      const existing = await rtdbGet(`admins/${key}`);
-      if (existing) throw new Error('Esse usuário já existe.');
-      const hash = await this.sha256(password);
-      await rtdbPut(`admins/${key}`, { username: String(username).trim(), hash, createdAt: Date.now() });
-    },
-    async changePassword(username, newPassword) {
-      const key = this._userKey(username);
-      const rec = await rtdbGet(`admins/${key}`);
-      if (!rec) throw new Error('Usuário não encontrado.');
-      const hash = await this.sha256(newPassword);
-      await rtdbPut(`admins/${key}`, { ...rec, hash });
-    },
-    async deleteAdmin(username) {
-      const key = this._userKey(username);
-      await rtdbDelete(`admins/${key}`);
-    },
-
-    async addLog(actor, action) {
-      await rtdbPost('logs', { actor, action, at: Date.now() });
-    },
-    async listLogs(limit = 200) {
-      const obj = await rtdbGet('logs');
-      if (!obj) return [];
-      return Object.keys(obj)
-        .map(id => ({ id, ...obj[id] }))
-        .sort((a, b) => (b.at || 0) - (a.at || 0))
-        .slice(0, limit);
+      if (!res.ok) throw new Error(`Erro ${res.status} ao salvar ${path}`);
+      return res.json();
     }
-  };
-  window.dispatchEvent(new Event('firebase-ready'));
-</script>
-
-<div id="app-root"></div>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
-  #app-root, #app-root * { box-sizing: border-box; }
-  #app-root {
-    --primary: #0C4A6E;
-    --accent: #059669;
-    --accent-dark: #047857;
-    --line: rgba(255,255,255,0.18);
-    --line-card: #DCEDE8;
-    --ok-bg: #DCFCE7;
-    --warn-bg: #FEF2F2;
-    --warn-ink: #B91C1C;
-    --muted: #5a7a75;
-    --ink: #14302C;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    background: linear-gradient(160deg, #2DD4BF 0%, #0EA5E9 30%, #0369A1 60%, #065F66 100%);
-    background-attachment: fixed;
-    min-height: 100vh;
-    padding: 0;
-    position: relative;
-  }
-  #app-root h1 { font-family: 'Poppins', sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; color: #fff; animation: fadeUp .65s ease .05s both; }
-  #app-root .sub { color: rgba(255,255,255,.82); font-size: 14.5px; margin: 0 0 28px; animation: fadeUp .65s ease .1s both; }
-  #app-root .topbar { position: relative; max-width: 720px; margin: 0 auto; padding: 28px 20px 18px; display: flex; align-items: flex-start; justify-content: space-between; z-index: 2; }
-  #app-root .topbar-left { animation: fadeDown .55s ease both; }
-  #app-root .brand-icon {
-    width: 40px; height: 40px; border-radius: 12px;
-    background: rgba(255,255,255,.15); backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,.25);
-    display: flex; align-items: center; justify-content: center; margin-bottom: 18px;
-  }
-  #app-root .brand-icon svg { width: 22px; height: 22px; }
-  #app-root .admin-btn {
-    width: 38px; height: 38px; border-radius: 50%;
-    background: rgba(255,255,255,.14); backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,.22);
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; transition: background .18s, transform .18s;
-    animation: fadeDown .55s ease both;
-  }
-  #app-root .admin-btn:hover { background: rgba(255,255,255,.26); transform: scale(1.08); }
-  #app-root .admin-btn svg { width: 18px; height: 18px; }
-  #app-root .content-wrap { max-width: 720px; margin: 0 auto; padding: 0 20px 100px; position: relative; z-index: 2; }
-  #app-root .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,.6); margin: 0 0 10px; }
-  #app-root .card {
-    background: rgba(255,255,255,0.94); border: 1px solid rgba(255,255,255,0.7);
-    border-radius: 16px; padding: 20px; margin-bottom: 14px;
-    animation: fadeUp .5s ease both; transition: box-shadow .2s ease, transform .2s ease;
-    backdrop-filter: blur(10px);
-  }
-  #app-root .card:hover { box-shadow: 0 12px 32px -16px rgba(6,47,74,0.35); }
-  #app-root .date-heading { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,.65); margin: 22px 0 8px; }
-  #app-root .date-heading:first-of-type { margin-top: 0; }
-  #app-root .slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
-  #app-root .slot-btn {
-    padding: 10px 6px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.7);
-    background: rgba(255,255,255,0.92); backdrop-filter: blur(8px);
-    font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s ease; color: var(--ink);
-  }
-  #app-root .slot-btn:hover { border-color: var(--accent); color: var(--accent-dark); transform: translateY(-2px); box-shadow: 0 6px 14px -6px rgba(5,150,105,.4); background: #fff; }
-  #app-root .slot-btn.booked { background: rgba(230,240,238,0.7); color: #a0b8b2; border-color: rgba(200,220,216,0.5); cursor: not-allowed; text-decoration: line-through; transform: none; box-shadow: none; }
-  #app-root .slot-btn.selected { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; border-color: transparent; transform: translateY(-2px); box-shadow: 0 8px 18px -6px rgba(5,150,105,.55); }
-  #app-root .empty { color: rgba(255,255,255,.7); font-size: 14px; padding: 24px 0; text-align: center; }
-  #app-root label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; color: var(--ink); }
-  #app-root input[type=text], #app-root input[type=tel], #app-root input[type=date], #app-root input[type=time], #app-root input[type=password] {
-    width: 100%; padding: 10px 12px; border: 1px solid #DCEDE8; border-radius: 9px; font-size: 14px; font-family: inherit; background: #fff; color: var(--ink); transition: border-color .15s, box-shadow .15s;
-  }
-  #app-root input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(5,150,105,.14); }
-  #app-root .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 11px 20px; border-radius: 10px; border: none; font-size: 14px; font-weight: 700; cursor: pointer; transition: all .15s ease; }
-  #app-root .btn-primary { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; box-shadow: 0 6px 16px -6px rgba(5,150,105,.45); }
-  #app-root .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(5,150,105,.55); }
-  #app-root .btn-primary:disabled { background: #CBD8D5; box-shadow: none; cursor: not-allowed; transform: none; }
-  #app-root .btn-ghost { background: rgba(255,255,255,0.12); color: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.25); backdrop-filter: blur(6px); }
-  #app-root .btn-ghost:hover { background: rgba(255,255,255,.22); color: #fff; }
-  #app-root .btn-ghost.on-card { background: transparent; color: var(--muted); border: 1px solid #DCEDE8; }
-  #app-root .btn-ghost.on-card:hover { border-color: var(--accent); color: var(--accent-dark); }
-  #app-root .btn-danger { background: #fff; color: var(--primary); border: 1px solid #CFE3EE; font-size: 12px; padding: 6px 10px; }
-  #app-root .btn-danger:hover { background: #F0F9FF; border-color: #7DD3FC; }
-  #app-root .confirm-banner { background: var(--ok-bg); color: var(--accent-dark); border-radius: 10px; padding: 16px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
-  #app-root .error-banner { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 16px; font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
-  #app-root .row { display: flex; gap: 10px; }
-  #app-root .row > * { flex: 1; }
-  #app-root .admin-slot-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #DCEDE8; font-size: 14px; }
-  #app-root .admin-slot-row:last-child { border-bottom: none; }
-  #app-root .tag { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
-  #app-root .tag-free { background: var(--ok-bg); color: var(--accent-dark); }
-  #app-root .tag-booked { background: #E0F2FE; color: var(--primary); }
-  #app-root .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  #app-root .lock-screen { max-width: 320px; margin: 0 auto 24px; text-align: center; }
-  #app-root .small-note { font-size: 12px; color: var(--muted); margin-top: 8px; }
-  #app-root .back-btn { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.22); border-radius: 999px; padding: 6px 14px 6px 10px; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.9); cursor: pointer; margin-bottom: 18px; transition: background .15s; backdrop-filter: blur(6px); }
-  #app-root .back-btn:hover { background: rgba(255,255,255,.22); }
-  #app-root .back-btn svg { width: 14px; height: 14px; }
-  #app-root .subtabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
-  #app-root .subtab { padding: 7px 14px; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.75); cursor: pointer; border-radius: 999px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); backdrop-filter: blur(6px); transition: all .15s; }
-  #app-root .subtab.active { color: #fff; background: linear-gradient(135deg, var(--primary), var(--accent)); border-color: transparent; }
-  #app-root .subtabs.on-card .subtab { color: var(--muted); background: #fff; border: 1px solid #DCEDE8; backdrop-filter: none; }
-  #app-root .subtabs.on-card .subtab:hover { border-color: var(--accent); }
-  #app-root .subtabs.on-card .subtab.active { color: #fff; background: linear-gradient(135deg, var(--primary), var(--accent)); border-color: transparent; }
-  #app-root .agenda-summary { display: flex; align-items: baseline; gap: 8px; }
-  #app-root .agenda-summary strong { font-size: 20px; color: var(--accent-dark); }
-  #app-root .agenda-card { padding: 14px; overflow-x: auto; }
-  #app-root .agenda-grid { display: grid; gap: 1px; background: #DCEDE8; border: 1px solid #DCEDE8; border-radius: 10px; overflow: hidden; min-width: 480px; }
-  #app-root .agenda-corner { background: #fff; }
-  #app-root .agenda-day-head { background: #fff; padding: 8px 6px; text-align: center; font-size: 12px; font-weight: 700; text-transform: capitalize; color: var(--primary); }
-  #app-root .agenda-day-num { font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 1px; }
-  #app-root .agenda-time-label { background: #fff; padding: 10px 8px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; }
-  #app-root .agenda-cell { background: #fff; min-height: 44px; padding: 6px; font-size: 11.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.25; overflow: hidden; transition: background .15s; }
-  #app-root .agenda-cell-empty { background: #F7FAF9; }
-  #app-root .agenda-cell-free { background: var(--ok-bg); color: var(--accent-dark); }
-  #app-root .agenda-cell-free::before { content: '· livre'; opacity: .7; font-weight: 500; }
-  #app-root .agenda-cell-open { outline: 2px solid var(--accent); outline-offset: -2px; }
-  #app-root .agenda-popover-backdrop { position: fixed; inset: 0; z-index: 40; background: transparent; }
-  #app-root .agenda-popover { position: fixed; z-index: 41; width: 260px; max-width: calc(100vw - 24px); background: #fff; border: 1px solid #DCEDE8; border-radius: 14px; padding: 16px; box-shadow: 0 18px 40px -12px rgba(6,47,74,.4); animation: fadeUp .18s ease both; }
-  #app-root .agenda-popover-close { position: absolute; top: 8px; right: 10px; border: none; background: transparent; font-size: 20px; line-height: 1; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
-  #app-root .agenda-popover-close:hover { background: #F0F9FF; color: var(--primary); }
-  #app-root .agenda-cell-booked { background: #E0F2FE; color: var(--primary); cursor: pointer; }
-  #app-root .agenda-cell-booked:hover { background: #BAE6FD; }
-  #app-root .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-  #app-root .chip { display: inline-flex; align-items: center; gap: 6px; background: #E0F2FE; color: var(--primary); font-size: 13px; font-weight: 600; padding: 5px 6px 5px 10px; border-radius: 999px; }
-  #app-root .chip-x { cursor: pointer; font-size: 15px; line-height: 1; padding: 0 3px; opacity: .7; }
-  #app-root .chip-x:hover { opacity: 1; }
-  #app-root .day-select { width: 100%; padding: 10px 12px; border: 1px solid #DCEDE8; border-radius: 8px; font-size: 14px; font-family: inherit; background: #fff; color: var(--ink); }
-  #app-root .weekday-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
-  #app-root .weekday-chip { padding: 6px 11px; font-size: 13px; font-weight: 600; border-radius: 999px; border: 1px solid #DCEDE8; background: #fff; color: var(--muted); cursor: pointer; user-select: none; transition: all .15s; }
-  #app-root .weekday-chip:hover { border-color: var(--accent); }
-  #app-root .weekday-chip.active { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; border-color: transparent; }
-  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
-  @keyframes fadeDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
-  @media (prefers-reduced-motion: reduce) { #app-root * { animation: none !important; transition: none !important; } }
-
-  @media (max-width: 600px) {
-    #app-root .topbar { padding: 20px 14px 14px; }
-    #app-root .content-wrap { padding: 0 14px 90px; }
-    #app-root h1 { font-size: 22px; }
-    #app-root .sub { font-size: 13.5px; margin-bottom: 20px; }
-    #app-root .card { padding: 16px; border-radius: 14px; }
-
-    #app-root .admin-slot-row { flex-direction: column; align-items: stretch; gap: 8px; }
-    #app-root .admin-slot-row > div { width: 100%; }
-    #app-root .admin-slot-row > div[style*="flex"] { display: flex; align-items: center; }
-    #app-root .admin-slot-row .btn-danger,
-    #app-root .admin-slot-row .btn-ghost { width: 100%; }
-
-    #app-root .row { flex-direction: column; gap: 8px; }
-    #app-root .row > * { width: 100%; }
-    #app-root .row .btn { width: 100%; }
-
-    #app-root .btn { padding: 12px 18px; }
-    #app-root .btn-danger { font-size: 13px; padding: 10px 14px; }
-
-    #app-root .subtabs { gap: 6px; }
-    #app-root .subtab { padding: 8px 12px; font-size: 12.5px; }
-
-    #app-root .slot-btn { padding: 12px 8px; font-size: 15px; }
-    #app-root .weekday-chip { padding: 8px 12px; font-size: 13px; }
-
-    #app-root input[type=text], #app-root input[type=tel], #app-root input[type=date],
-    #app-root input[type=time], #app-root input[type=password], #app-root .day-select { font-size: 16px; }
-  }
-</style>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-
-<script type="text/babel">
-const { useState, useEffect, useCallback, useRef } = React;
-
-function formatDateLabel(dateStr) {
-  const d = new Date(dateStr + "T00:00:00");
-  const txt = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
-  return txt.charAt(0).toUpperCase() + txt.slice(1);
-}
-
-function formatTimestamp(ms) {
-  if (!ms) return '';
-  return new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-function App() {
-  const [tab, setTab] = useState('cliente');
-  const [slots, setSlots] = useState([]);
-  const [ready, setReady] = useState(false);
-  const [configError, setConfigError] = useState(null);
-
-  useEffect(() => {
-    let unsubscribe = null;
-    function onReady() {
-      setReady(true);
-      unsubscribe = window.firebaseApi.listen((s) => {
-        s.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-        setSlots(s);
+    async function rtdbPost(path, value) {
+      const res = await fetch(`${DB_URL}/${path}.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(value)
       });
+      if (!res.ok) throw new Error(`Erro ${res.status} ao criar em ${path}`);
+      return res.json();
     }
-    function onError(e) { setConfigError(e.detail); }
-    function onOk() { setConfigError(null); }
-    if (window.firebaseApi) onReady();
-    else window.addEventListener('firebase-ready', onReady, { once: true });
-    window.addEventListener('firebase-config-error', onError);
-    window.addEventListener('firebase-config-ok', onOk);
-    return () => {
-      window.removeEventListener('firebase-config-error', onError);
-      window.removeEventListener('firebase-config-ok', onOk);
-      if (unsubscribe) unsubscribe();
+    async function rtdbDelete(path) {
+      const res = await fetch(`${DB_URL}/${path}.json`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`Erro ${res.status} ao remover ${path}`);
+    }
+
+    function slotsObjToArray(obj) {
+      if (!obj) return [];
+      return Object.keys(obj).map(id => ({ id, ...obj[id] }));
+    }
+
+    let pollHandle = null;
+
+    function getDeviceId() {
+      let id = localStorage.getItem('agenda_device_id');
+      if (!id) {
+        id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+        localStorage.setItem('agenda_device_id', id);
+      }
+      return id;
+    }
+
+    window.firebaseApi = {
+      getDeviceId,
+      listen(callback) {
+        let stopped = false;
+        async function tick() {
+          if (stopped) return;
+          try {
+            const obj = await rtdbGet('slots');
+            callback(slotsObjToArray(obj));
+            window.dispatchEvent(new CustomEvent('firebase-config-ok'));
+          } catch (e) {
+            console.error("Realtime Database error:", e);
+            window.dispatchEvent(new CustomEvent('firebase-config-error', { detail: e.message }));
+          }
+        }
+        tick();
+        pollHandle = setInterval(tick, 3000);
+        return () => { stopped = true; clearInterval(pollHandle); };
+      },
+      async addSlot(date, time) {
+        await rtdbPost('slots', { date, time, status: 'available' });
+      },
+      async removeSlot(id) {
+        await rtdbDelete(`slots/${id}`);
+      },
+      async releaseSlot(id) {
+        const current = await rtdbGet(`slots/${id}`);
+        if (!current) return;
+        await rtdbPut(`slots/${id}`, { date: current.date, time: current.time, status: 'available' });
+      },
+      async bookSlot(id, clientName, animalName) {
+        const deviceId = getDeviceId();
+        const current = await rtdbGet(`slots/${id}`);
+        if (!current || current.status === 'booked') {
+          throw new Error("already-booked");
+        }
+        const allSlots = slotsObjToArray(await rtdbGet('slots'));
+        const alreadyBookedToday = allSlots.some(s => s.date === current.date && s.status === 'booked' && s.deviceId === deviceId);
+        if (alreadyBookedToday) {
+          throw new Error("one-per-day");
+        }
+        await rtdbPut(`slots/${id}`, { ...current, status: 'booked', clientName, animalName, deviceId });
+        return true;
+      },
+      async addSlots(date, times) {
+        const obj = {};
+        times.forEach(t => {
+          const key = `${date}_${t}`.replace(/[^a-zA-Z0-9_]/g, '');
+          obj[key] = { date, time: t, status: 'available' };
+        });
+        const res = await fetch(`${DB_URL}/slots.json`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(obj)
+        });
+        if (!res.ok) throw new Error(`Erro ${res.status} ao adicionar horários`);
+      },
+
+      async sha256(text) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+      },
+      _userKey(username) {
+        return String(username).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      },
+      async listAdmins() {
+        const obj = await rtdbGet('admins');
+        if (!obj) return [];
+        return Object.keys(obj).map(k => ({ key: k, username: obj[k].username || k, createdAt: obj[k].createdAt || null }));
+      },
+      async ensureSeedAdmin() {
+        const obj = await rtdbGet('admins');
+        if (obj && Object.keys(obj).length > 0) return false;
+        const key = this._userKey('admin');
+        const hash = await this.sha256('admin123');
+        await rtdbPut(`admins/${key}`, { username: 'admin', hash, createdAt: Date.now() });
+        return true;
+      },
+      async verifyAdmin(username, password) {
+        const key = this._userKey(username);
+        const rec = await rtdbGet(`admins/${key}`);
+        if (!rec) return false;
+        const hash = await this.sha256(password);
+        return rec.hash === hash;
+      },
+      async createAdmin(username, password) {
+        const key = this._userKey(username);
+        if (!key) throw new Error('Usuário inválido.');
+        const existing = await rtdbGet(`admins/${key}`);
+        if (existing) throw new Error('Esse usuário já existe.');
+        const hash = await this.sha256(password);
+        await rtdbPut(`admins/${key}`, { username: String(username).trim(), hash, createdAt: Date.now() });
+      },
+      async changePassword(username, newPassword) {
+        const key = this._userKey(username);
+        const rec = await rtdbGet(`admins/${key}`);
+        if (!rec) throw new Error('Usuário não encontrado.');
+        const hash = await this.sha256(newPassword);
+        await rtdbPut(`admins/${key}`, { ...rec, hash });
+      },
+      async deleteAdmin(username) {
+        const key = this._userKey(username);
+        await rtdbDelete(`admins/${key}`);
+      },
+
+      async addLog(actor, action) {
+        await rtdbPost('logs', { actor, action, at: Date.now() });
+      },
+      async listLogs(limit = 200) {
+        const obj = await rtdbGet('logs');
+        if (!obj) return [];
+        return Object.keys(obj)
+          .map(id => ({ id, ...obj[id] }))
+          .sort((a, b) => (b.at || 0) - (a.at || 0))
+          .slice(0, limit);
+      }
     };
-  }, []);
+    window.dispatchEvent(new Event('firebase-ready'));
+  </script>
 
-  return (
-    <div>
-      <div className="topbar">
-        <div className="topbar-left">
-          <div className="brand-icon">
-            <svg viewBox="0 0 24 24" fill="#fff" stroke="none">
-              <circle cx="6.5" cy="9.5" r="2.1"/>
-              <circle cx="10.5" cy="6.2" r="2.1"/>
-              <circle cx="13.5" cy="6.2" r="2.1"/>
-              <circle cx="17.5" cy="9.5" r="2.1"/>
-              <path d="M12 11.2c-2.4 0-4.6 1.8-5.2 4.1-.4 1.6.9 3 2.6 3 .9 0 1.7-.3 2.6-.3s1.7.3 2.6.3c1.7 0 3-1.4 2.6-3-.6-2.3-2.8-4.1-5.2-4.1Z"/>
-            </svg>
-          </div>
-          <h1>Agendamento de visitas</h1>
-          <p className="sub">Escolha um horário disponível para o seu pet.</p>
-        </div>
-        <div className="admin-btn" title={tab === 'admin' ? 'Fechar painel' : 'Administração'} onClick={() => setTab(tab === 'admin' ? 'cliente' : 'admin')}>
-          {tab === 'admin' ? (
-            <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          )}
-        </div>
-      </div>
+  <div id="app-root"></div>
 
-      <div className="content-wrap">
-        {configError && (
-          <div className="error-banner">
-            Não foi possível conectar ao Realtime Database ({configError}). Confira se a DB_URL está correta e se as regras permitem leitura/escrita.
-          </div>
-        )}
-        {!ready ? <div className="empty">Conectando…</div> : (
-          tab === 'cliente'
-            ? <ClienteView slots={slots} />
-            : <AdminView slots={slots} onBack={() => setTab('cliente')} />
-        )}
-      </div>
-    </div>
-  );
-}
+  <!-- React + Babel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js">
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js">
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js">
+  </script>
 
-function ClienteView({ slots }) {
-  const [chosenDate, setChosenDate] = useState('');
-  const [selected, setSelected] = useState(null);
-  const [name, setName] = useState('');
-  const [animal, setAnimal] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [confirmed, setConfirmed] = useState(null);
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
 
-  const byDate = {};
-  slots.forEach(s => {
-    if (!byDate[s.date]) byDate[s.date] = [];
-    byDate[s.date].push(s);
-  });
-  const dates = Object.keys(byDate).sort();
+    function formatDateLabel(dateStr) {
+      const d = new Date(dateStr + "T00:00:00");
+      const txt = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+      return txt.charAt(0).toUpperCase() + txt.slice(1);
+    }
 
-  async function handleBook() {
-    if (!selected || !name.trim() || !animal.trim()) return;
-    setSubmitting(true);
-    setError('');
-    try {
-      await window.firebaseApi.bookSlot(selected.id, name.trim(), animal.trim());
-      setConfirmed({ ...selected, clientName: name.trim(), animalName: animal.trim() });
-    } catch (e) {
-      if (e.message === 'one-per-day') {
-        setError('Você já tem uma visita agendada para esse dia. Só é permitido um agendamento por dia.');
-      } else {
-        setError('Esse horário acabou de ser reservado por outra pessoa. Escolha outro, por favor.');
+    function formatTimestamp(ms) {
+      if (!ms) return '';
+      return new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit',
+        minute: '2-digit' });
+    }
+
+    // ===== APP =====
+    function App() {
+      // Recupera o tema salvo no navegador, ou define como false (light) por padrão
+      const [darkMode, setDarkMode] = useState(() => {
+        const saved = localStorage.getItem('petcare_theme');
+        return saved === 'dark';
+      });
+
+      const [tab, setTab] = useState('cliente');
+      const [slots, setSlots] = useState([]);
+      const [ready, setReady] = useState(false);
+      const [configError, setConfigError] = useState(null);
+
+      // CORREÇÃO: Aplica a classe dark-mode no elemento HTML (document.documentElement)
+      // para que todo o body e a página inteira fiquem escuros.
+      useEffect(() => {
+        if (darkMode) {
+          document.documentElement.classList.add('dark-mode');
+          localStorage.setItem('petcare_theme', 'dark');
+        } else {
+          document.documentElement.classList.remove('dark-mode');
+          localStorage.setItem('petcare_theme', 'light');
+        }
+      }, [darkMode]);
+
+      useEffect(() => {
+        let unsubscribe = null;
+
+        function onReady() {
+          setReady(true);
+          unsubscribe = window.firebaseApi.listen((s) => {
+            s.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+            setSlots(s);
+          });
+        }
+
+        function onError(e) { setConfigError(e.detail); }
+
+        function onOk() { setConfigError(null); }
+
+        if (window.firebaseApi) onReady();
+        else window.addEventListener('firebase-ready', onReady, { once: true });
+        window.addEventListener('firebase-config-error', onError);
+        window.addEventListener('firebase-config-ok', onOk);
+        return () => {
+          window.removeEventListener('firebase-config-error', onError);
+          window.removeEventListener('firebase-config-ok', onOk);
+          if (unsubscribe) unsubscribe();
+        };
+      }, []);
+
+      return ( <
+        div >
+        <
+        div className = "topbar" >
+        <
+        div className = "topbar-left" >
+        <
+        div className = "brand-icon" >
+        <
+        svg viewBox = "0 0 24 24"
+        fill = "currentColor" >
+        <
+        path d = "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" / >
+        <
+        /svg> <
+        /div> <
+        div >
+        <
+        div className = "topbar-title" >
+        <span>🐶</span> PetCare Vet <span>🐱</span> < /div> <
+        div className = "topbar-sub" > Agendamento de visitas < /div> <
+        /div> <
+        /div>
+
+        <
+        div className = "topbar-actions" >
+        <
+        button className = "theme-toggle"
+        title = { darkMode ? 'Mudar para tema claro' : 'Mudar para tema escuro' }
+        onClick = {
+          () => setDarkMode(!darkMode) } > {
+          darkMode ? ( <
+            svg viewBox = "0 0 24 24"
+            fill = "none"
+            stroke = "currentColor"
+            strokeWidth = "2"
+            strokeLinecap = "round"
+            strokeLinejoin = "round" >
+            <
+            circle cx = "12"
+            cy = "12"
+            r = "5" / >
+            <
+            path d = "M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" / >
+            <
+            /svg>
+          ) : ( <
+            svg viewBox = "0 0 24 24"
+            fill = "none"
+            stroke = "currentColor"
+            strokeWidth = "2"
+            strokeLinecap = "round"
+            strokeLinejoin = "round" >
+            <
+            path d = "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" / >
+            <
+            /svg>
+          )
+        } <
+        /button>
+
+        <
+        button className = "admin-toggle"
+        title = { tab === 'admin' ? 'Fechar painel' : 'Administração' }
+        onClick = {
+          () => setTab(tab === 'admin' ? 'cliente' : 'admin') } > {
+          tab === 'admin' ? ( <
+            svg viewBox = "0 0 24 24"
+            fill = "none"
+            stroke = "currentColor"
+            strokeWidth = "2"
+            strokeLinecap = "round"
+            strokeLinejoin = "round" >
+            <
+            path d = "M18 6L6 18M6 6l12 12" / >
+            <
+            /svg>
+          ) : ( <
+            svg viewBox = "0 0 24 24"
+            fill = "none"
+            stroke = "currentColor"
+            strokeWidth = "1.8"
+            strokeLinecap = "round"
+            strokeLinejoin = "round" >
+            <
+            circle cx = "12"
+            cy = "12"
+            r = "3" / >
+            <
+            path d = "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" / >
+            <
+            /svg>
+          )
+        } <
+        /button> <
+        /div> <
+        /div>
+
+        <
+        div className = "content-wrap" > {
+          configError && ( <
+            div className = "banner banner-error" >
+            Não foi possível conectar ao Realtime Database({ configError }).Confira se a DB_URL está correta e se as regras permitem leitura / escrita. <
+            /div>
+          )
+        } {
+          !ready ? ( < div className = "text-muted text-sm"
+            style = { { textAlign: 'center', padding: '40px 0' } } > Carregando… < /div>) : (
+              tab === 'cliente' ? < ClienteView slots = { slots }
+              /> : <AdminView slots={slots} onBack={() => setTab('cliente')} />
+            )
+        } <
+        /div> <
+        /div>
+      );
+    }
+
+    // ===== CLIENTE VIEW =====
+    function ClienteView({ slots }) {
+      const [chosenDate, setChosenDate] = useState('');
+      const [selected, setSelected] = useState(null);
+      const [name, setName] = useState('');
+      const [animal, setAnimal] = useState('');
+      const [submitting, setSubmitting] = useState(false);
+      const [error, setError] = useState('');
+      const [confirmed, setConfirmed] = useState(null);
+
+      const byDate = {};
+      slots.forEach(s => {
+        if (!byDate[s.date]) byDate[s.date] = [];
+        byDate[s.date].push(s);
+      });
+      const dates = Object.keys(byDate).sort();
+
+      async function handleBook() {
+        if (!selected || !name.trim() || !animal.trim()) return;
+        setSubmitting(true);
+        setError('');
+        try {
+          await window.firebaseApi.bookSlot(selected.id, name.trim(), animal.trim());
+          setConfirmed({ ...selected, clientName: name.trim(), animalName: animal.trim() });
+        } catch (e) {
+          if (e.message === 'one-per-day') {
+            setError('Você já tem uma visita agendada para esse dia. Só é permitido um agendamento por dia.');
+          } else {
+            setError('Esse horário acabou de ser reservado por outra pessoa. Escolha outro, por favor.');
+          }
+          setSelected(null);
+        }
+        setSubmitting(false);
       }
-      setSelected(null);
-    }
-    setSubmitting(false);
-  }
 
-  if (confirmed) {
-    return (
-      <div className="card">
-        <div className="confirm-banner">Visita confirmada! ✓</div>
-        <p style={{margin: '0 0 4px'}}><strong>{formatDateLabel(confirmed.date)}</strong> às <strong>{confirmed.time}</strong></p>
-        <p className="meta">Tutor: {confirmed.clientName} · Animal: {confirmed.animalName}</p>
-        <button className="btn btn-ghost on-card" style={{marginTop: 16}} onClick={() => { setConfirmed(null); setSelected(null); setName(''); setAnimal(''); }}>Agendar outro horário</button>
-      </div>
-    );
-  }
-
-  if (dates.length === 0) {
-    return <div className="card"><div className="empty">Nenhum horário disponível no momento. Volte em breve.</div></div>;
-  }
-
-  return (
-    <div>
-      <div className="card">
-        <label>Escolha a data da visita</label>
-        <input
-          type="date"
-          className="day-select"
-          value={chosenDate}
-          min={dates[0]}
-          max={dates[dates.length - 1]}
-          onChange={e => { setChosenDate(e.target.value); setSelected(null); setError(''); }}
-        />
-        {chosenDate && !byDate[chosenDate] && (
-          <p className="meta" style={{marginTop: 8}}>Não há horários disponíveis nessa data. Datas com horários: {dates.map(d => formatDateLabel(d).split(',')[1]?.trim() || d).slice(0, 6).join(', ')}{dates.length > 6 ? '…' : ''}.</p>
-        )}
-      </div>
-
-      {chosenDate && byDate[chosenDate] && (
-        <div className="card" style={{marginTop: 14}}>
-          <p style={{margin: '0 0 10px', fontWeight: 700}}>Horários disponíveis</p>
-          <div className="slot-grid">
-            {byDate[chosenDate].map(s => (
-              <button
-                key={s.id}
-                className={"slot-btn" + (s.status === 'booked' ? ' booked' : '') + (selected && selected.id === s.id ? ' selected' : '')}
-                disabled={s.status === 'booked'}
-                onClick={() => setSelected(s)}
-              >
-                {s.time}
-              </button>
-            ))}
-          </div>
-          {byDate[chosenDate].every(s => s.status === 'booked') && (
-            <div className="empty" style={{marginTop: 6}}>Todos os horários desse dia já foram reservados.</div>
-          )}
-        </div>
-      )}
-
-      {selected && (
-        <div className="card" style={{marginTop: 14}}>
-          <p style={{margin: '0 0 4px', fontWeight: 700}}>Confirmar visita: {formatDateLabel(selected.date)} às {selected.time}</p>
-          <label>Seu nome</label>
-          <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Nome completo" />
-          <label>Nome do animal</label>
-          <input type="text" value={animal} onChange={e => setAnimal(e.target.value)} placeholder="Ex: Bolinha" />
-          {error && <p style={{color: '#B5562D', fontSize: 13, marginTop: 10}}>{error}</p>}
-          <button
-            className="btn btn-primary"
-            style={{marginTop: 16}}
-            disabled={submitting || !name.trim() || !animal.trim()}
-            onClick={handleBook}
-          >
-            {submitting ? 'Confirmando…' : 'Confirmar agendamento'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AdminView({ slots, onBack }) {
-  const [unlocked, setUnlocked] = useState(false);
-  const [currentUser, setCurrentUser] = useState('');
-  const [user, setUser] = useState('');
-  const [pass, setPass] = useState('');
-  const [passError, setPassError] = useState('');
-  const [checking, setChecking] = useState(false);
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
-  const [pendingTimes, setPendingTimes] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const [view, setView] = useState('agenda');
-  const [dateMode, setDateMode] = useState('single');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
-  const [rangeMsg, setRangeMsg] = useState('');
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedSlots, setSelectedSlots] = useState([]);
-
-  async function log(action) {
-    try { await window.firebaseApi.addLog(currentUser || user || 'desconhecido', action); } catch (e) {}
-  }
-
-  async function tryUnlock() {
-    setChecking(true);
-    setPassError('');
-    try {
-      await window.firebaseApi.ensureSeedAdmin();
-      const ok = await window.firebaseApi.verifyAdmin(user, pass);
-      if (ok) {
-        const uname = user.trim();
-        setCurrentUser(uname);
-        setUnlocked(true);
-        await window.firebaseApi.addLog(uname, 'Acessou o painel administrativo');
-      } else {
-        setPassError('Usuário ou senha incorretos.');
+      if (confirmed) {
+        return ( <
+          div className = "card" >
+          <
+          div className = "banner banner-success" > 🎉 Visita confirmada! < /div> <
+          p style = { { margin: '0 0 6px' } } > < strong > { formatDateLabel(confirmed.date) } < /strong> às <strong>{confirmed.time}</strong > < /p> <
+          p className = "text-muted" > 🐾 Tutor: { confirmed.clientName } · Animal: { confirmed.animalName } < /p> <
+          button className = "btn btn-outline btn-block"
+          style = { { marginTop: 16 } }
+          onClick = {
+            () => { setConfirmed(null);
+              setSelected(null);
+              setName('');
+              setAnimal(''); } } >
+          Agendar outro horário <
+          /button> <
+          /div>
+        );
       }
-    } catch (e) {
-      setPassError('Erro ao validar: ' + e.message);
-    }
-    setChecking(false);
-  }
 
-  function addTimeToList() {
-    if (!time) return;
-    if (!pendingTimes.includes(time)) {
-      setPendingTimes([...pendingTimes, time].sort());
-    }
-    setTime('');
-  }
-
-  function removeTimeFromList(t) {
-    setPendingTimes(pendingTimes.filter(x => x !== t));
-  }
-
-  async function saveAllTimes() {
-    if (!date || pendingTimes.length === 0) return;
-    setBusy(true);
-    const existing = new Set(slots.filter(s => s.date === date).map(s => s.time));
-    const toAdd = pendingTimes.filter(t => !existing.has(t));
-    if (toAdd.length > 0) {
-      await window.firebaseApi.addSlots(date, toAdd);
-      await log(`Adicionou ${toAdd.length} horário(s) em ${date}: ${toAdd.join(', ')}`);
-    }
-    setPendingTimes([]);
-    setBusy(false);
-  }
-
-  function toggleWeekday(d) {
-    setWeekdays(weekdays.includes(d) ? weekdays.filter(x => x !== d) : [...weekdays, d].sort());
-  }
-
-  function datesInRange() {
-    if (!startDate || !endDate) return [];
-    const out = [];
-    let cur = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T00:00:00');
-    while (cur <= end) {
-
-      if (weekdays.includes(cur.getDay())) {
-        out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`);
+      if (dates.length === 0) {
+        return < div className = "card" > < div className = "text-muted text-sm"
+        style = { { textAlign: 'center', padding: '20px 0' } } > Nenhum horário disponível no momento.Volte em breve. < /div></div > ;
       }
-      cur.setDate(cur.getDate() + 1);
-    }
-    return out;
-  }
 
-  async function saveRange() {
-    setRangeMsg('');
-    const targetDates = datesInRange();
-    if (targetDates.length === 0 || pendingTimes.length === 0) return;
-    setBusy(true);
-    let totalAdded = 0;
-    for (const d of targetDates) {
-      const existing = new Set(slots.filter(s => s.date === d).map(s => s.time));
-      const toAdd = pendingTimes.filter(t => !existing.has(t));
-      if (toAdd.length > 0) {
-        await window.firebaseApi.addSlots(d, toAdd);
-        totalAdded += toAdd.length;
+      return ( <
+        div >
+        <
+        div className = "card" >
+        <
+        label > Escolha a data da visita < /label> <
+        input type = "date"
+        className = "day-select"
+        value = { chosenDate }
+        min = { dates[0] }
+        max = { dates[dates.length - 1] }
+        onChange = { e => { setChosenDate(e.target.value);
+          setSelected(null);
+          setError(''); }
+        }
+        /> {
+          chosenDate && !byDate[chosenDate] && ( <
+            p className = "text-muted mt-8" >
+            Não há horários disponíveis nessa data.Datas com horários: { dates.map(d => formatDateLabel(d).split(',')[1]?.trim() || d).slice(0, 6).join(', ') } { dates.length > 6 ? '…' : '' }. <
+            /p>
+          )
+        } <
+        /div>
+
+        {
+          chosenDate && byDate[chosenDate] && ( <
+            div className = "card mt-8" >
+            <
+            p className = "fw-700 mb-8" > Horários disponíveis < /p> <
+            div className = "slot-grid" > {
+              byDate[chosenDate].map(s => ( <
+                button key = { s.id }
+                className = { "slot-btn" + (s.status === 'booked' ? ' booked' : '') + (selected && selected.id === s.id ?
+                  ' selected' : '') }
+                disabled = { s.status === 'booked' }
+                onClick = {
+                  () => setSelected(s) } > { s.time } < /button>
+              ))
+            } <
+            /div> {
+              byDate[chosenDate].every(s => s.status === 'booked') && ( <
+                div className = "text-muted text-sm"
+                style = { { textAlign: 'center', marginTop: '12px' } } >
+                Todos os horários desse dia já foram reservados. <
+                /div>
+              )
+            } <
+            /div>
+          )
+        }
+
+        {
+          selected && ( <
+            div className = "card mt-8" >
+            <
+            p className = "fw-700 mb-8" > Confirmar visita: { formatDateLabel(selected.date) } às { selected.time } < /p> <
+            label > Seu nome < /label> <
+            input type = "text"
+            value = { name }
+            onChange = { e => setName(e.target.value) }
+            placeholder = "Nome completo" /
+            > <
+            label > Nome do animal < /label> <
+            input type = "text"
+            value = { animal }
+            onChange = { e => setAnimal(e.target.value) }
+            placeholder = "Ex: Bolinha" /
+            > {
+              error && < p className = "text-sm"
+            style = { { color: '#9b2c2c', marginTop: '10px' } } > { error } < /p>} <
+            button className = "btn btn-primary btn-block mt-16"
+            disabled = { submitting || !name.trim() || !animal.trim() }
+            onClick = { handleBook } > { submitting ? 'Confirmando…' : 'Confirmar agendamento' } < /button> <
+            /div>
+          )
+        } <
+        /div>
+      );
+    }
+
+    // ===== ADMIN VIEW =====
+    function AdminView({ slots, onBack }) {
+      const [unlocked, setUnlocked] = useState(false);
+      const [currentUser, setCurrentUser] = useState('');
+      const [user, setUser] = useState('');
+      const [pass, setPass] = useState('');
+      const [passError, setPassError] = useState('');
+      const [checking, setChecking] = useState(false);
+      const [date, setDate] = useState('');
+      const [time, setTime] = useState('');
+      const [pendingTimes, setPendingTimes] = useState([]);
+      const [busy, setBusy] = useState(false);
+      const [view, setView] = useState('agenda');
+      const [dateMode, setDateMode] = useState('single');
+      const [startDate, setStartDate] = useState('');
+      const [endDate, setEndDate] = useState('');
+      const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
+      const [rangeMsg, setRangeMsg] = useState('');
+      const [selectMode, setSelectMode] = useState(false);
+      const [selectedSlots, setSelectedSlots] = useState([]);
+
+      async function log(action) {
+        try { await window.firebaseApi.addLog(currentUser || user || 'desconhecido', action); } catch (e) {}
       }
-    }
-    await log(`Adicionou ${totalAdded} horário(s) em ${targetDates.length} dia(s) (${targetDates[0]} a ${targetDates[targetDates.length - 1]}): ${pendingTimes.join(', ')}`);
-    setRangeMsg(`${totalAdded} horário(s) criado(s) em ${targetDates.length} dia(s).`);
-    setPendingTimes([]);
-    setBusy(false);
-  }
 
-  async function removeSlot(s) {
-    setBusy(true);
-    if (s.status === 'booked') {
-      await window.firebaseApi.releaseSlot(s.id);
-      await log(`Liberou o horário ${s.date} ${s.time} (estava com ${s.clientName || 'tutor'})`);
-    } else {
-      await window.firebaseApi.removeSlot(s.id);
-      await log(`Removeu o horário ${s.date} ${s.time}`);
-    }
-    setBusy(false);
-  }
-
-  function toggleSelectSlot(id) {
-    setSelectedSlots(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  }
-
-  async function removeSelectedSlots(list) {
-    const chosen = list.filter(s => selectedSlots.includes(s.id));
-    if (chosen.length === 0) return;
-    const okConfirm = window.confirm(`Remover/liberar ${chosen.length} horário(s) selecionado(s)?`);
-    if (!okConfirm) return;
-    setBusy(true);
-    let removed = 0, released = 0;
-    for (const s of chosen) {
-      if (s.status === 'booked') {
-        await window.firebaseApi.releaseSlot(s.id);
-        released++;
-      } else {
-        await window.firebaseApi.removeSlot(s.id);
-        removed++;
+      async function tryUnlock() {
+        setChecking(true);
+        setPassError('');
+        try {
+          await window.firebaseApi.ensureSeedAdmin();
+          const ok = await window.firebaseApi.verifyAdmin(user, pass);
+          if (ok) {
+            const uname = user.trim();
+            setCurrentUser(uname);
+            setUnlocked(true);
+            await window.firebaseApi.addLog(uname, 'Acessou o painel administrativo');
+          } else {
+            setPassError('Usuário ou senha incorretos.');
+          }
+        } catch (e) {
+          setPassError('Erro ao validar: ' + e.message);
+        }
+        setChecking(false);
       }
-    }
-    await log(`Ação em lote: removeu ${removed} horário(s) livre(s) e liberou ${released} ocupado(s)`);
-    setSelectedSlots([]);
-    setSelectMode(false);
-    setBusy(false);
-  }
 
-  if (!unlocked) {
-    return (
-      <div className="lock-screen">
-        <div className="card">
-          <label>Usuário</label>
-          <input type="text" value={user} onChange={e => setUser(e.target.value)} onKeyDown={e => e.key === 'Enter' && tryUnlock()} placeholder="Digite o usuário" autoComplete="username" />
-          <label style={{marginTop: 12}}>Senha de administração</label>
-          <input type="password" value={pass} onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && tryUnlock()} placeholder="Digite a senha" autoComplete="current-password" />
-          {passError && <p style={{color: '#B5562D', fontSize: 13, marginTop: 8}}>{passError}</p>}
-          <button className="btn btn-primary" style={{marginTop: 14, width: '100%'}} disabled={checking} onClick={tryUnlock}>{checking ? 'Verificando…' : 'Entrar'}</button>
-        </div>
-      </div>
-    );
-  }
+      function addTimeToList() {
+        if (!time) return;
+        if (!pendingTimes.includes(time)) {
+          setPendingTimes([...pendingTimes, time].sort());
+        }
+        setTime('');
+      }
 
-  const sorted = [...slots].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+      function removeTimeFromList(t) {
+        setPendingTimes(pendingTimes.filter(x => x !== t));
+      }
 
-  return (
-    <div>
-      <div style={{display: 'flex', justifyContent: 'flex-end', marginBottom: 14}}>
-        <button className="btn btn-ghost on-card" onClick={() => { setUnlocked(false); setPass(''); setUser(''); setCurrentUser(''); setView('agenda'); }}>Sair</button>
-      </div>
+      async function saveAllTimes() {
+        if (!date || pendingTimes.length === 0) return;
+        setBusy(true);
+        const existing = new Set(slots.filter(s => s.date === date).map(s => s.time));
+        const toAdd = pendingTimes.filter(t => !existing.has(t));
+        if (toAdd.length > 0) {
+          await window.firebaseApi.addSlots(date, toAdd);
+          await log(`Adicionou ${toAdd.length} horário(s) em ${date}: ${toAdd.join(', ')}`);
+        }
+        setPendingTimes([]);
+        setBusy(false);
+      }
 
-      <div className="subtabs">
-        <div className={"subtab" + (view === 'agenda' ? ' active' : '')} onClick={() => setView('agenda')}>Agenda</div>
-        <div className={"subtab" + (view === 'gerenciar' ? ' active' : '')} onClick={() => setView('gerenciar')}>Gerenciar horários</div>
-        <div className={"subtab" + (view === 'usuarios' ? ' active' : '')} onClick={() => setView('usuarios')}>Usuários</div>
-        <div className={"subtab" + (view === 'minhasenha' ? ' active' : '')} onClick={() => setView('minhasenha')}>Minha senha</div>
-        <div className={"subtab" + (view === 'logs' ? ' active' : '')} onClick={() => setView('logs')}>Logs</div>
-      </div>
+      function toggleWeekday(d) {
+        setWeekdays(weekdays.includes(d) ? weekdays.filter(x => x !== d) : [...weekdays, d].sort());
+      }
 
-      {view === 'agenda' && <AgendaView slots={sorted} />}
+      function datesInRange() {
+        if (!startDate || !endDate) return [];
+        const out = [];
+        let cur = new Date(startDate + 'T00:00:00');
+        const end = new Date(endDate + 'T00:00:00');
+        while (cur <= end) {
+          if (weekdays.includes(cur.getDay())) {
+            out.push(
+              `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+              );
+          }
+          cur.setDate(cur.getDate() + 1);
+        }
+        return out;
+      }
 
-      {view === 'usuarios' && <UsersView currentUser={currentUser} onLog={log} />}
+      async function saveRange() {
+        setRangeMsg('');
+        const targetDates = datesInRange();
+        if (targetDates.length === 0 || pendingTimes.length === 0) return;
+        setBusy(true);
+        let totalAdded = 0;
+        for (const d of targetDates) {
+          const existing = new Set(slots.filter(s => s.date === d).map(s => s.time));
+          const toAdd = pendingTimes.filter(t => !existing.has(t));
+          if (toAdd.length > 0) {
+            await window.firebaseApi.addSlots(d, toAdd);
+            totalAdded += toAdd.length;
+          }
+        }
+        await log(
+          `Adicionou ${totalAdded} horário(s) em ${targetDates.length} dia(s) (${targetDates[0]} a ${targetDates[targetDates.length - 1]}): ${pendingTimes.join(', ')}`
+          );
+        setRangeMsg(`${totalAdded} horário(s) criado(s) em ${targetDates.length} dia(s).`);
+        setPendingTimes([]);
+        setBusy(false);
+      }
 
-      {view === 'minhasenha' && <MyPasswordView currentUser={currentUser} onLog={log} />}
+      async function removeSlot(s) {
+        setBusy(true);
+        if (s.status === 'booked') {
+          await window.firebaseApi.releaseSlot(s.id);
+          await log(`Liberou o horário ${s.date} ${s.time} (estava com ${s.clientName || 'tutor'})`);
+        } else {
+          await window.firebaseApi.removeSlot(s.id);
+          await log(`Removeu o horário ${s.date} ${s.time}`);
+        }
+        setBusy(false);
+      }
 
-      {view === 'logs' && <LogsView />}
+      function toggleSelectSlot(id) {
+        setSelectedSlots(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+      }
 
-      {view === 'gerenciar' && (
-        <div>
-          <div className="card">
-            <p style={{margin: '0 0 4px', fontWeight: 700}}>Liberar horários</p>
-            <p className="meta" style={{marginBottom: 12}}>Adicione horários para um único dia ou para vários dias de uma vez (ex.: segunda a sexta).</p>
+      async function removeSelectedSlots(list) {
+        const chosen = list.filter(s => selectedSlots.includes(s.id));
+        if (chosen.length === 0) return;
+        const okConfirm = window.confirm(`Remover/liberar ${chosen.length} horário(s) selecionado(s)?`);
+        if (!okConfirm) return;
+        setBusy(true);
+        let removed = 0,
+          released = 0;
+        for (const s of chosen) {
+          if (s.status === 'booked') {
+            await window.firebaseApi.releaseSlot(s.id);
+            released++;
+          } else {
+            await window.firebaseApi.removeSlot(s.id);
+            removed++;
+          }
+        }
+        await log(`Ação em lote: removeu ${removed} horário(s) livre(s) e liberou ${released} ocupado(s)`);
+        setSelectedSlots([]);
+        setSelectMode(false);
+        setBusy(false);
+      }
 
-            <div className="subtabs on-card" style={{marginBottom: 14}}>
-              <div className={"subtab" + (dateMode === 'single' ? ' active' : '')} onClick={() => { setDateMode('single'); setRangeMsg(''); }}>Um dia</div>
-              <div className={"subtab" + (dateMode === 'range' ? ' active' : '')} onClick={() => { setDateMode('range'); setRangeMsg(''); }}>Vários dias</div>
-            </div>
+      if (!unlocked) {
+        return ( <
+          div className = "card"
+          style = { { maxWidth: '400px', margin: '0 auto' } } >
+          <
+          label > Usuário < /label> <
+          input type = "text"
+          value = { user }
+          onChange = { e => setUser(e.target.value) }
+          onKeyDown = { e => e.key === 'Enter' && tryUnlock() }
+          placeholder = "Digite o usuário"
+          autoComplete = "username" /
+          > <
+          label style = { { marginTop: 12 } } > Senha de administração < /label> <
+          input type = "password"
+          value = { pass }
+          onChange = { e => setPass(e.target.value) }
+          onKeyDown = { e => e.key === 'Enter' && tryUnlock() }
+          placeholder = "Digite a senha"
+          autoComplete = "current-password" /
+          > {
+            passError && < p className = "text-sm"
+          style = { { color: '#9b2c2c', marginTop: 8 } } > { passError } < /p>} <
+          button className = "btn btn-primary btn-block mt-16"
+          disabled = { checking }
+          onClick = { tryUnlock } > { checking ? 'Verificando…' : 'Entrar' } < /button> <
+          /div>
+        );
+      }
 
-            {dateMode === 'single' ? (
-              <div>
-                <label>Data</label>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} />
-              </div>
-            ) : (
-              <div>
-                <div className="row">
-                  <div style={{flex: 1}}>
-                    <label>De</label>
-                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-                  </div>
-                  <div style={{flex: 1}}>
-                    <label>Até</label>
-                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
-                  </div>
-                </div>
-                <label>Dias da semana</label>
-                <div className="weekday-row">
-                  {[['Dom',0],['Seg',1],['Ter',2],['Qua',3],['Qui',4],['Sex',5],['Sáb',6]].map(([lbl, d]) => (
-                    <span
-                      key={d}
-                      className={"weekday-chip" + (weekdays.includes(d) ? ' active' : '')}
-                      onClick={() => toggleWeekday(d)}
-                    >{lbl}</span>
-                  ))}
-                </div>
-                {startDate && endDate && (
-                  <p className="meta" style={{marginTop: 8}}>{datesInRange().length} dia(s) selecionado(s) no período.</p>
-                )}
-              </div>
-            )}
+      const sorted = [...slots].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 
-            <label style={{marginTop: 12}}>Horário</label>
-            <div className="row">
-              <input type="time" value={time} onChange={e => setTime(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTimeToList()} />
-              <button className="btn btn-ghost on-card" style={{flex: '0 0 auto'}} disabled={!time} onClick={addTimeToList}>+ Adicionar à lista</button>
-            </div>
+      return ( <
+        div >
+        <
+        div style = { { display: 'flex', justifyContent: 'flex-end', marginBottom: 16 } } >
+        <
+        button className = "btn btn-outline btn-sm"
+        onClick = {
+          () => { setUnlocked(false);
+            setPass('');
+            setUser('');
+            setCurrentUser('');
+            setView('agenda'); } } >
+        Sair <
+        /button> <
+        /div>
 
-            {pendingTimes.length > 0 && (
-              <div className="chip-list">
-                {pendingTimes.map(t => (
-                  <span key={t} className="chip">{t} <span className="chip-x" onClick={() => removeTimeFromList(t)}>×</span></span>
-                ))}
-              </div>
-            )}
+        <
+        div className = "subtabs" > {
+          ['agenda', 'gerenciar', 'usuarios', 'minhasenha', 'logs'].map(v => ( <
+            div key = { v }
+            className = { "subtab" + (view === v ? ' active' : '') }
+            onClick = {
+              () => setView(v) } > {
+              v === 'agenda' && 'Agenda' } {
+              v === 'gerenciar' && 'Gerenciar' } {
+              v === 'usuarios' && 'Usuários' } {
+              v === 'minhasenha' && 'Minha senha' } {
+              v === 'logs' && 'Logs' } < /div>
+          ))
+        } <
+        /div>
 
-            {dateMode === 'single' ? (
-              <button
-                className="btn btn-primary"
-                style={{marginTop: 16}}
-                disabled={busy || !date || pendingTimes.length === 0}
-                onClick={saveAllTimes}
-              >
-                {busy ? 'Salvando…' : `Salvar ${pendingTimes.length || ''} horário${pendingTimes.length === 1 ? '' : 's'}`.trim()}
-              </button>
-            ) : (
-              <button
-                className="btn btn-primary"
-                style={{marginTop: 16}}
-                disabled={busy || !startDate || !endDate || weekdays.length === 0 || pendingTimes.length === 0 || datesInRange().length === 0}
-                onClick={saveRange}
-              >
-                {busy ? 'Salvando…' : `Salvar em ${datesInRange().length} dia(s)`}
-              </button>
-            )}
-            {rangeMsg && <p style={{color: '#047857', fontSize: 13, marginTop: 10}}>{rangeMsg}</p>}
-          </div>
+        {
+          view === 'agenda' && < AgendaView slots = { sorted }
+          />} {
+            view === 'usuarios' && < UsersView currentUser = { currentUser }
+            onLog = { log }
+            />} {
+              view === 'minhasenha' && < MyPasswordView currentUser = { currentUser }
+              onLog = { log }
+              />} {
+                view === 'logs' && < LogsView / > }
 
-          <div className="card">
-            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap'}}>
-              <p style={{margin: 0, fontWeight: 700}}>Horários cadastrados ({sorted.length})</p>
-              {sorted.length > 0 && (
-                <button
-                  className="btn btn-ghost on-card"
-                  style={{flex: '0 0 auto'}}
-                  onClick={() => { setSelectMode(!selectMode); setSelectedSlots([]); }}
-                >
-                  {selectMode ? 'Cancelar seleção' : 'Selecionar vários'}
-                </button>
-              )}
-            </div>
+                {
+                  view === 'gerenciar' && ( <
+                    div >
+                    <
+                    div className = "card" >
+                    <
+                    div className = "card-title" > 🦴 Liberar horários < /div> <
+                    div className = "card-sub" > Adicione horários para um único dia ou para vários dias de uma vez(ex.: segunda a sexta). < /div>
 
-            {selectMode && sorted.length > 0 && (
-              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: '8px 0 12px', borderBottom: '1px solid #DCEDE8', marginBottom: 6}}>
-                <label style={{display: 'flex', alignItems: 'center', gap: 8, margin: 0, fontWeight: 600, cursor: 'pointer'}}>
-                  <input
-                    type="checkbox"
-                    checked={selectedSlots.length === sorted.length && sorted.length > 0}
-                    onChange={e => setSelectedSlots(e.target.checked ? sorted.map(s => s.id) : [])}
-                  />
-                  Selecionar todos ({selectedSlots.length})
-                </label>
-                <button
-                  className="btn btn-danger"
-                  style={{flex: '0 0 auto'}}
-                  disabled={busy || selectedSlots.length === 0}
-                  onClick={() => removeSelectedSlots(sorted)}
-                >
-                  {busy ? 'Processando…' : `Remover ${selectedSlots.length || ''} selecionado${selectedSlots.length === 1 ? '' : 's'}`.trim()}
-                </button>
-              </div>
-            )}
+                    <
+                    div style = { { display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' } } >
+                    <
+                    button className = { "btn " + (dateMode === 'single' ? 'btn-primary' : 'btn-outline') }
+                    onClick = {
+                      () => { setDateMode('single');
+                        setRangeMsg(''); } } >
+                    Um dia <
+                    /button> <
+                    button className = { "btn " + (dateMode === 'range' ? 'btn-secondary' : 'btn-outline') }
+                    onClick = {
+                      () => { setDateMode('range');
+                        setRangeMsg(''); } } >
+                    Vários dias <
+                    /button> <
+                    /div>
 
-            {sorted.length === 0 && <div className="empty">Nenhum horário cadastrado ainda.</div>}
-            {sorted.map(s => (
-              <div key={s.id} className="admin-slot-row">
-                <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
-                  {selectMode && (
-                    <input
-                      type="checkbox"
-                      checked={selectedSlots.includes(s.id)}
-                      onChange={() => toggleSelectSlot(s.id)}
+                    {
+                      dateMode === 'single' ? ( <
+                        div >
+                        <
+                        label > Data < /label> <
+                        input type = "date"
+                        value = { date }
+                        onChange = { e => setDate(e.target.value) }
+                        /> <
+                        /div>
+                      ) : ( <
+                        div >
+                        <
+                        div className = "input-group" >
+                        <
+                        div >
+                        <
+                        label > De < /label> <
+                        input type = "date"
+                        value = { startDate }
+                        onChange = { e => setStartDate(e.target.value) }
+                        /> <
+                        /div> <
+                        div >
+                        <
+                        label > Até < /label> <
+                        input type = "date"
+                        value = { endDate }
+                        onChange = { e => setEndDate(e.target.value) }
+                        /> <
+                        /div> <
+                        /div> <
+                        label > Dias da semana < /label> <
+                        div className = "weekday-row" > {
+                          [
+                            ['Dom', 0],
+                            ['Seg', 1],
+                            ['Ter', 2],
+                            ['Qua', 3],
+                            ['Qui', 4],
+                            ['Sex', 5],
+                            ['Sáb', 6]
+                          ].map(([lbl, d]) => ( <
+                            span key = { d }
+                            className = { "weekday-chip" + (weekdays.includes(d) ? ' active' : '') }
+                            onClick = {
+                              () => toggleWeekday(d) } > { lbl } < /span>
+                          ))
+                        } <
+                        /div> {
+                          startDate && endDate && ( <
+                            p className = "text-muted mt-8" > { datesInRange().length } dia(s) selecionado(s) no período. < /p>
+                          )
+                        } <
+                        /div>
+                      )
+                    }
+
+                    <
+                    label style = { { marginTop: 12 } } > Horário < /label> <
+                    div className = "input-group" >
+                    <
+                    input type = "time"
+                    value = { time }
+                    onChange = { e => setTime(e.target.value) }
+                    onKeyDown = { e => e.key === 'Enter' && addTimeToList() }
+                    /> <
+                    button className = "btn btn-secondary"
+                    disabled = {!time }
+                    onClick = { addTimeToList } > + Adicionar à lista < /button> <
+                    /div>
+
+                    {
+                      pendingTimes.length > 0 && ( <
+                        div className = "chip-list" > {
+                          pendingTimes.map(t => ( <
+                            span key = { t }
+                            className = "chip" > 🕐 { t } < span className = "chip-x"
+                            onClick = {
+                              () => removeTimeFromList(t) } > × < /span></span >
+                          ))
+                        } <
+                        /div>
+                      )
+                    }
+
+                    {
+                      dateMode === 'single' ? ( <
+                        button className = "btn btn-primary btn-block mt-16"
+                        disabled = { busy || !date || pendingTimes.length === 0 }
+                        onClick = { saveAllTimes } >
+                        { busy ? 'Salvando…' :
+                          `Salvar ${pendingTimes.length || ''} horário${pendingTimes.length === 1 ? '' : 's'}`.trim() } <
+                        /button>
+                      ) : ( <
+                        button className = "btn btn-primary btn-block mt-16"
+                        disabled = { busy || !startDate || !endDate || weekdays.length === 0 || pendingTimes.length ===
+                            0 || datesInRange().length === 0 }
+                        onClick = { saveRange } >
+                        { busy ? 'Salvando…' : `Salvar em ${datesInRange().length} dia(s)` } <
+                        /button>
+                      )
+                    } {
+                      rangeMsg && < p className = "text-sm"
+                    style = { { color: '#22543d', marginTop: '10px' } } > { rangeMsg } < /p>} <
+                    /div>
+
+                    <
+                    div className = "card" >
+                    <
+                    div style = { { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12,
+                        flexWrap: 'wrap', gap: 8 } } >
+                    <
+                    span className = "fw-700" > 📅 Horários cadastrados({ sorted.length }) < /span> {
+                      sorted.length > 0 && ( <
+                        button className = "btn btn-outline btn-sm"
+                        onClick = {
+                          () => { setSelectMode(!selectMode);
+                            setSelectedSlots([]); } } >
+                        { selectMode ? 'Cancelar seleção' : 'Selecionar vários' } <
+                        /button>
+                      )
+                    } <
+                    /div>
+
+                    {
+                      selectMode && sorted.length > 0 && ( <
+                        div style = { { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                            flexWrap: 'wrap', padding: '8px 0 12px', borderBottom: '1px solid var(--border-color)',
+                            marginBottom: 8 } } >
+                        <
+                        label style = { { display: 'flex', alignItems: 'center', gap: 8, margin: 0, fontWeight: 600,
+                            cursor: 'pointer' } } >
+                        <
+                        input type = "checkbox"
+                        checked = { selectedSlots.length === sorted.length && sorted.length > 0 }
+                        onChange = { e => setSelectedSlots(e.target.checked ? sorted.map(s => s.id) : []) }
+                        /> Selecionar todos({ selectedSlots.length }) <
+                        /label> <
+                        button className = "btn btn-danger btn-sm"
+                        disabled = { busy || selectedSlots.length === 0 }
+                        onClick = {
+                          () => removeSelectedSlots(sorted) } >
+                        { busy ? 'Processando…' :
+                          `Remover ${selectedSlots.length || ''} selecionado${selectedSlots.length === 1 ? '' : 's'}`.trim() } <
+                        /button> <
+                        /div>
+                      )
+                    }
+
+                    {
+                      sorted.length === 0 && < div className = "text-muted text-sm"
+                    style = { { textAlign: 'center', padding: '20px 0' } } > Nenhum horário cadastrado ainda. < /div>} {
+                      sorted.map(s => ( <
+                        div key = { s.id }
+                        className = "admin-slot-row" >
+                        <
+                        div style = { { display: 'flex', alignItems: 'center', gap: 12 } } > {
+                          selectMode && ( <
+                            input type = "checkbox"
+                            checked = { selectedSlots.includes(s.id) }
+                            onChange = {
+                              () => toggleSelectSlot(s.id) }
+                            />
+                          )
+                        } <
+                        div >
+                        <
+                        div > 🐕 { formatDateLabel(s.date) } · { s.time } < /div> {
+                          s.status === 'booked' && < div className = "text-muted"
+                        style = { { fontSize: '13px' } } > Tutor: { s.clientName } · Animal: { s.animalName } < /div>} <
+                        /div> <
+                        /div> <
+                        div className = "actions" >
+                        <
+                        span className = { "tag " + (s.status === 'booked' ? 'tag-booked' : 'tag-free') } > { s.status ===
+                            'booked' ? 'Ocupado' : 'Livre' } < /span> {
+                          !selectMode && < button className = "btn btn-danger btn-sm"
+                        onClick = {
+                            () => removeSlot(s) } > { s.status === 'booked' ? 'Liberar' : 'Remover' } < /button>} <
+                        /div> <
+                        /div>
+                      ))
+                    } <
+                    /div> <
+                    p className = "text-muted text-sm mt-8" >
+                    Os dados ficam salvos no Realtime Database(Firebase) e são compartilhados entre todos que acessam este link. <
+                    /p> <
+                    /div>
+                  )
+                } <
+                /div>
+              );
+            }
+
+            // ===== MY PASSWORD VIEW =====
+            function MyPasswordView({ currentUser, onLog }) {
+              const [cur, setCur] = useState('');
+              const [nw, setNw] = useState('');
+              const [conf, setConf] = useState('');
+              const [busy, setBusy] = useState(false);
+              const [msg, setMsg] = useState('');
+              const [err, setErr] = useState('');
+
+              async function submit() {
+                setMsg('');
+                setErr('');
+                if (!cur || !nw || !conf) { setErr('Preencha todos os campos.'); return; }
+                if (nw !== conf) { setErr('A nova senha e a confirmação não coincidem.'); return; }
+                if (nw.length < 4) { setErr('A nova senha deve ter ao menos 4 caracteres.'); return; }
+                setBusy(true);
+                try {
+                  const ok = await window.firebaseApi.verifyAdmin(currentUser, cur);
+                  if (!ok) { setErr('A senha atual está incorreta.');
+                    setBusy(false); return; }
+                  await window.firebaseApi.changePassword(currentUser, nw);
+                  await onLog('Alterou a própria senha');
+                  setMsg('Senha alterada com sucesso.');
+                  setCur('');
+                  setNw('');
+                  setConf('');
+                } catch (e) { setErr(e.message); }
+                setBusy(false);
+              }
+
+              return ( <
+                div className = "card" >
+                <
+                div className = "card-title" > 🔒 Alterar minha senha < /div> <
+                div className = "card-sub" >
+                Conectado como < strong > { currentUser } < /strong>.</div >
+                <
+                label > Senha atual < /label> <
+                input type = "password"
+                value = { cur }
+                onChange = { e => setCur(e.target.value) }
+                placeholder = "Digite sua senha atual"
+                autoComplete = "current-password" /
+                > <
+                label > Nova senha < /label> <
+                input type = "password"
+                value = { nw }
+                onChange = { e => setNw(e.target.value) }
+                placeholder = "Nova senha"
+                autoComplete = "new-password" /
+                > <
+                label > Confirmar nova senha < /label> <
+                input type = "password"
+                value = { conf }
+                onChange = { e => setConf(e.target.value) }
+                onKeyDown = { e => e.key === 'Enter' && submit() }
+                placeholder = "Repita a nova senha"
+                autoComplete = "new-password" /
+                > {
+                  err && < p className = "text-sm"
+                style = { { color: '#9b2c2c', marginTop: 10 } } > { err } < /p>} {
+                  msg && < p className = "text-sm"
+                style = { { color: '#22543d', marginTop: 10 } } > { msg } < /p>} <
+                button className = "btn btn-primary btn-block mt-16"
+                disabled = { busy }
+                onClick = { submit } > { busy ? 'Salvando…' : 'Salvar nova senha' } < /button> <
+                /div>
+              );
+            }
+
+            // ===== USERS VIEW =====
+            function UsersView({ currentUser, onLog }) {
+              const [admins, setAdmins] = useState(null);
+              const [newUser, setNewUser] = useState('');
+              const [newPass, setNewPass] = useState('');
+              const [msg, setMsg] = useState('');
+              const [err, setErr] = useState('');
+              const [busy, setBusy] = useState(false);
+              const [pwTarget, setPwTarget] = useState('');
+              const [pwValue, setPwValue] = useState('');
+
+              async function reload() {
+                try { setAdmins(await window.firebaseApi.listAdmins()); } catch (e) { setErr(e.message); }
+              }
+              useEffect(() => { reload(); }, []);
+
+              async function create() {
+                setErr('');
+                setMsg('');
+                if (!newUser.trim() || !newPass) { setErr('Preencha usuário e senha.'); return; }
+                setBusy(true);
+                try {
+                  await window.firebaseApi.createAdmin(newUser, newPass);
+                  await onLog(`Criou o usuário "${newUser.trim()}"`);
+                  setMsg(`Usuário "${newUser.trim()}" criado.`);
+                  setNewUser('');
+                  setNewPass('');
+                  await reload();
+                } catch (e) { setErr(e.message); }
+                setBusy(false);
+              }
+
+              async function changePw(username) {
+                setErr('');
+                setMsg('');
+                if (!pwValue) { setErr('Digite a nova senha.'); return; }
+                setBusy(true);
+                try {
+                  await window.firebaseApi.changePassword(username, pwValue);
+                  await onLog(`Trocou a senha do usuário "${username}"`);
+                  setMsg(`Senha de "${username}" atualizada.`);
+                  setPwTarget('');
+                  setPwValue('');
+                } catch (e) { setErr(e.message); }
+                setBusy(false);
+              }
+
+              async function remove(username) {
+                setErr('');
+                setMsg('');
+                if (admins && admins.length <= 1) { setErr('Não é possível excluir o único usuário restante.'); return; }
+                if (username.toLowerCase() === currentUser.toLowerCase()) { setErr(
+                    'Você não pode excluir o usuário com que está logado.'); return; }
+                setBusy(true);
+                try {
+                  await window.firebaseApi.deleteAdmin(username);
+                  await onLog(`Excluiu o usuário "${username}"`);
+                  setMsg(`Usuário "${username}" excluído.`);
+                  await reload();
+                } catch (e) { setErr(e.message); }
+                setBusy(false);
+              }
+
+              return ( <
+                div >
+                <
+                div className = "card" >
+                <
+                div className = "card-title" > 🧑‍⚕️ Novo usuário < /div> <
+                div className = "card-sub" >
+                Crie um novo administrador.A senha é guardada com hash no banco, nunca em texto puro. <
+                /div> <
+                label > Usuário < /label> <
+                input type = "text"
+                value = { newUser }
+                onChange = { e => setNewUser(e.target.value) }
+                placeholder = "ex.: maria" /
+                > <
+                label > Senha < /label> <
+                input type = "password"
+                value = { newPass }
+                onChange = { e => setNewPass(e.target.value) }
+                placeholder = "Defina uma senha" /
+                > <
+                button className = "btn btn-primary btn-block mt-16"
+                disabled = { busy }
+                onClick = { create } > Criar usuário < /button> <
+                /div>
+
+                {
+                  (msg || err) && ( <
+                    div className = { "banner " + (err ? 'banner-error' : 'banner-success') } > { err || msg } < /div>
+                  )
+                }
+
+                <
+                div className = "card" >
+                <
+                div className = "card-title" > 👥 Administradores({ admins ? admins.length : '…' }) < /div> {
+                  !admins && < div className = "text-muted text-sm"
+                style = { { textAlign: 'center', padding: '20px 0' } } > Carregando… < /div>} {
+                  admins && admins.length === 0 && < div className = "text-muted text-sm"
+                style = { { textAlign: 'center', padding: '20px 0' } } > Nenhum usuário cadastrado. < /div>} {
+                  admins && admins.map(a => ( <
+                    div key = { a.key }
+                    className = "admin-slot-row" >
+                    <
+                    div >
+                    <
+                    div > 👤 { a.username } { a.username.toLowerCase() === currentUser.toLowerCase() && < span className =
+                      "text-muted"
+                    style = { { fontSize: '12px' } } > (você) < /span>}</div >
+                    {
+                      a.createdAt && < div className = "text-muted"
+                    style = { { fontSize: '12px' } } > Criado em { formatTimestamp(a.createdAt) } < /div>} <
+                    /div> <
+                    div className = "actions" >
+                    <
+                    button className = "btn btn-outline btn-sm"
+                    onClick = {
+                      () => { setPwTarget(pwTarget === a.username ? '' : a.username);
+                        setPwValue(''); } } >
+                    Trocar senha <
+                    /button> <
+                    button className = "btn btn-danger btn-sm"
+                    onClick = {
+                      () => remove(a.username) } > Excluir < /button> <
+                    /div> {
+                      pwTarget === a.username && ( <
+                        div className = "input-group mt-8"
+                        style = { { width: '100%' } } >
+                        <
+                        input type = "password"
+                        value = { pwValue }
+                        onChange = { e => setPwValue(e.target.value) }
+                        placeholder = { `Nova senha para ${a.username}` }
+                        onKeyDown = { e => e.key === 'Enter' && changePw(a.username) }
+                        /> <
+                        button className = "btn btn-primary btn-sm"
+                        disabled = { busy }
+                        onClick = {
+                          () => changePw(a.username) } > Salvar < /button> <
+                        /div>
+                      )
+                    } <
+                    /div>
+                  ))
+                } <
+                /div> <
+                p className = "text-muted text-sm mt-8" >
+                Observação: este app acessa o banco direto do navegador, então a real proteção dos dados depende das Regras de
+                Segurança do Firebase.O hash evita expor senhas, mas para segurança forte use Firebase Authentication. <
+                /p> <
+                /div>
+              );
+            }
+
+            // ===== LOGS VIEW =====
+            function LogsView() {
+              const [logs, setLogs] = useState(null);
+              const [err, setErr] = useState('');
+
+              async function reload() {
+                try { setLogs(await window.firebaseApi.listLogs(200)); } catch (e) { setErr(e.message); }
+              }
+              useEffect(() => { reload(); }, []);
+
+              return ( <
+                div className = "card" >
+                <
+                div style = { { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 } } >
+                <
+                span className = "fw-700" > 📝 Registro de atividades < /span> <
+                button className = "btn btn-outline btn-sm"
+                onClick = { reload } > Atualizar < /button> <
+                /div> {
+                  err && < p className = "text-sm"
+                style = { { color: '#9b2c2c' } } > { err } < /p>} {
+                  !logs && < div className = "text-muted text-sm"
+                style = { { textAlign: 'center', padding: '20px 0' } } > Carregando… < /div>} {
+                  logs && logs.length === 0 && < div className = "text-muted text-sm"
+                style = { { textAlign: 'center', padding: '20px 0' } } > Nenhuma atividade registrada ainda. < /div>} {
+                  logs && logs.map(l => ( <
+                    div key = { l.id }
+                    className = "admin-slot-row" >
+                    <
+                    div >
+                    <
+                    div > { l.action } < /div> <
+                    div className = "text-muted"
+                    style = { { fontSize: '12px' } } > por { l.actor } · { formatTimestamp(l.at) } < /div> <
+                    /div> <
+                    /div>
+                  ))
+                } <
+                /div>
+              );
+            }
+
+            // ===== AGENDA VIEW =====
+            function AgendaView({ slots }) {
+              const [selected, setSelected] = useState(null);
+              const [anchor, setAnchor] = useState(null);
+              const allDates = [...new Set(slots.map(s => s.date))].sort();
+              const today = new Date();
+              const todayStr =
+                `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+              const [activeDate, setActiveDate] = useState(allDates.includes(todayStr) ? todayStr : (allDates[0] || ''));
+
+              useEffect(() => {
+                if (allDates.length > 0 && !allDates.includes(activeDate)) {
+                  setActiveDate(allDates.includes(todayStr) ? todayStr : allDates[0]);
+                }
+              }, [slots.length]);
+
+              if (slots.length === 0) {
+                return < div className = "card" > < div className = "text-muted text-sm"
+                style = { { textAlign: 'center', padding: '20px 0' } } > Nenhum horário cadastrado ainda.Vá em "Gerenciar horários"
+                para adicionar. < /div></div > ;
+              }
+
+              const dayDates = activeDate === 'todos' ? allDates : [activeDate];
+              const dayTimes = [...new Set(slots.filter(s => dayDates.includes(s.date)).map(s => s.time))].sort();
+
+              const byKey = {};
+              slots.forEach(s => { byKey[`${s.date}|${s.time}`] = s; });
+
+              const visibleSlots = slots.filter(s => dayDates.includes(s.date));
+              const bookedCount = visibleSlots.filter(s => s.status === 'booked').length;
+
+              return ( <
+                div >
+                <
+                div className = "card" >
+                <
+                label style = { { marginTop: 0 } } > Visualizando < /label> <
+                div className = "input-group" >
+                <
+                input type = "date"
+                className = "day-select"
+                value = { activeDate === 'todos' ? '' : activeDate }
+                min = { allDates[0] }
+                max = { allDates[allDates.length - 1] }
+                onChange = { e => { setActiveDate(e.target.value || (allDates[0] || ''));
+                  setSelected(null); } }
+                /> <
+                button className = { "btn " + (activeDate === 'todos' ? 'btn-secondary' : 'btn-outline') }
+                onClick = {
+                  () => { setActiveDate(activeDate === 'todos' ? (allDates.includes(todayStr) ? todayStr : allDates[0]) :
+                      'todos');
+                    setSelected(null); } } >
+                { activeDate === 'todos' ? 'Ver um dia' : 'Todos os dias' } <
+                /button> <
+                /div> {
+                  activeDate !== 'todos' && !allDates.includes(activeDate) && ( <
+                    p className = "text-muted mt-8" > Não há horários cadastrados nessa data. < /p>
+                  )
+                } <
+                div style = { { display: 'flex', gap: '16px', marginTop: '12px', flexWrap: 'wrap' } } >
+                <
+                div > 🐶 < strong > { bookedCount } < /strong> agendada{bookedCount !== 1 ? 's' : ''}</div >
+                <
+                div className = "text-muted" > de { visibleSlots.length } horário { visibleSlots.length !== 1 ? 's' : '' } { activeDate ===
+                    'todos' ? 'no total' : 'nesse dia' } < /div> <
+                /div> <
+                /div>
+
+                <
+                div className = "card agenda-card" >
+                <
+                div className = "agenda-grid"
+                style = { { gridTemplateColumns: `72px repeat(${dayDates.length}, minmax(110px, 1fr))` } } >
+                <
+                div className = "agenda-corner" > < /div> {
+                  dayDates.map(d => ( <
+                    div key = { d }
+                    className = "agenda-day-head" >
+                    { new Date(d + "T00:00:00").toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '') } <
+                    div className = "agenda-day-num" > { new Date(d + "T00:00:00").getDate().toString().padStart(2, '0') } /{ (
+                      new Date(d + "T00:00:00").getMonth() + 1
+                    ).toString().padStart(2, '0') } < /div> <
+                    /div>
+                  ))
+                }
+
+                {
+                  dayTimes.map(t => ( <
+                    React.Fragment key = { t } >
+                    <
+                    div className = "agenda-time-label" > { t } < /div> {
+                      dayDates.map(d => {
+                        const s = byKey[`${d}|${t}`];
+                        if (!s) return < div key = { d }
+                        className = "agenda-cell agenda-cell-empty" > < /div>;
+                        const isOpen = selected && selected.id === s.id;
+                        return ( <
+                          div key = { d }
+                          className = { "agenda-cell " + (s.status === 'booked' ? 'agenda-cell-booked' :
+                            'agenda-cell-free') + (isOpen ? ' agenda-cell-open' : '') }
+                          onClick = {
+                            (e) => {
+                              if (s.status !== 'booked') return;
+                              if (isOpen) { setSelected(null);
+                                setAnchor(null); return; }
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setAnchor({ x: r.left + r.width / 2, y: r.bottom });
+                              setSelected(s);
+                            }
+                          } >
+                          { s.status === 'booked' ? (s.animalName || s.clientName || 'Ocupado') : '' } <
+                          /div>
+                        );
+                      })
+                    } <
+                    /React.Fragment>
+                  ))
+                } <
+                /div> <
+                /div>
+
+                {
+                  selected && anchor && ( <
+                    >
+                    <
+                    div className = "popover-backdrop"
+                    onClick = {
+                      () => { setSelected(null);
+                        setAnchor(null); } } > < /div> <
+                    div className = "popover"
+                    style = { {
+                      top: Math.min(anchor.y + 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 200),
+                      left: Math.max(12, Math.min(anchor.x - 130, (typeof window !== 'undefined' ? window.innerWidth :
+                        400) - 272))
+                    } }
+                    onClick = { e => e.stopPropagation() } >
+                    <
+                    button className = "popover-close"
+                    onClick = {
+                      () => { setSelected(null);
+                        setAnchor(null); } }
+                    aria-label = "Fechar" > × < /button> <
+                    p style = { { margin: '0 0 8px', fontWeight: 700, fontSize: 16 } } > 🐾 { formatDateLabel(selected
+                        .date) } às { selected.time } < /p> <
+                    p className = "text-muted" > Tutor: { selected.clientName || '—' } < /p> <
+                    p className = "text-muted" > Animal: { selected.animalName || '—' } < /p> <
+                    button className = "btn btn-danger btn-block mt-12"
+                    onClick = { async () => { await window.firebaseApi.releaseSlot(selected.id);
+                      setSelected(null);
+                      setAnchor(null); } } >
+                    Liberar horário <
+                    /button> <
+                    /div> <
                     />
-                  )}
-                  <div>
-                    <div>{formatDateLabel(s.date)} · {s.time}</div>
-                    {s.status === 'booked' && <div className="meta">Tutor: {s.clientName} · Animal: {s.animalName}</div>}
-                  </div>
-                </div>
-                <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
-                  <span className={"tag " + (s.status === 'booked' ? 'tag-booked' : 'tag-free')}>{s.status === 'booked' ? 'Ocupado' : 'Livre'}</span>
-                  {!selectMode && <button className="btn btn-danger" onClick={() => removeSlot(s)}>{s.status === 'booked' ? 'Liberar horário' : 'Remover'}</button>}
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="small-note">Os dados ficam salvos no Realtime Database (Firebase) e são compartilhados entre todos que acessam este link.</p>
-        </div>
-      )}
-    </div>
-  );
-}
+                  )
+                } <
+                /div>
+              );
+            }
 
-function MyPasswordView({ currentUser, onLog }) {
-  const [cur, setCur] = useState('');
-  const [nw, setNw] = useState('');
-  const [conf, setConf] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [err, setErr] = useState('');
-
-  async function submit() {
-    setMsg(''); setErr('');
-    if (!cur || !nw || !conf) { setErr('Preencha todos os campos.'); return; }
-    if (nw !== conf) { setErr('A nova senha e a confirmação não coincidem.'); return; }
-    if (nw.length < 4) { setErr('A nova senha deve ter ao menos 4 caracteres.'); return; }
-    setBusy(true);
-    try {
-      const ok = await window.firebaseApi.verifyAdmin(currentUser, cur);
-      if (!ok) { setErr('A senha atual está incorreta.'); setBusy(false); return; }
-      await window.firebaseApi.changePassword(currentUser, nw);
-      await onLog('Alterou a própria senha');
-      setMsg('Senha alterada com sucesso.');
-      setCur(''); setNw(''); setConf('');
-    } catch (e) { setErr(e.message); }
-    setBusy(false);
-  }
-
-  return (
-    <div className="card">
-      <p style={{margin: '0 0 4px', fontWeight: 700}}>Alterar minha senha</p>
-      <p className="meta" style={{marginBottom: 12}}>Conectado como <strong>{currentUser}</strong>.</p>
-      <label>Senha atual</label>
-      <input type="password" value={cur} onChange={e => setCur(e.target.value)} placeholder="Digite sua senha atual" autoComplete="current-password" />
-      <label>Nova senha</label>
-      <input type="password" value={nw} onChange={e => setNw(e.target.value)} placeholder="Nova senha" autoComplete="new-password" />
-      <label>Confirmar nova senha</label>
-      <input type="password" value={conf} onChange={e => setConf(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} placeholder="Repita a nova senha" autoComplete="new-password" />
-      {err && <p style={{color: '#B5562D', fontSize: 13, marginTop: 10}}>{err}</p>}
-      {msg && <p style={{color: '#047857', fontSize: 13, marginTop: 10}}>{msg}</p>}
-      <button className="btn btn-primary" style={{marginTop: 16}} disabled={busy} onClick={submit}>{busy ? 'Salvando…' : 'Salvar nova senha'}</button>
-    </div>
-  );
-}
-
-function UsersView({ currentUser, onLog }) {
-  const [admins, setAdmins] = useState(null);
-  const [newUser, setNewUser] = useState('');
-  const [newPass, setNewPass] = useState('');
-  const [msg, setMsg] = useState('');
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [pwTarget, setPwTarget] = useState('');
-  const [pwValue, setPwValue] = useState('');
-
-  async function reload() {
-    try { setAdmins(await window.firebaseApi.listAdmins()); } catch (e) { setErr(e.message); }
-  }
-  useEffect(() => { reload(); }, []);
-
-  async function create() {
-    setErr(''); setMsg('');
-    if (!newUser.trim() || !newPass) { setErr('Preencha usuário e senha.'); return; }
-    setBusy(true);
-    try {
-      await window.firebaseApi.createAdmin(newUser, newPass);
-      await onLog(`Criou o usuário "${newUser.trim()}"`);
-      setMsg(`Usuário "${newUser.trim()}" criado.`);
-      setNewUser(''); setNewPass('');
-      await reload();
-    } catch (e) { setErr(e.message); }
-    setBusy(false);
-  }
-
-  async function changePw(username) {
-    setErr(''); setMsg('');
-    if (!pwValue) { setErr('Digite a nova senha.'); return; }
-    setBusy(true);
-    try {
-      await window.firebaseApi.changePassword(username, pwValue);
-      await onLog(`Trocou a senha do usuário "${username}"`);
-      setMsg(`Senha de "${username}" atualizada.`);
-      setPwTarget(''); setPwValue('');
-    } catch (e) { setErr(e.message); }
-    setBusy(false);
-  }
-
-  async function remove(username) {
-    setErr(''); setMsg('');
-    if (admins && admins.length <= 1) { setErr('Não é possível excluir o único usuário restante.'); return; }
-    if (username.toLowerCase() === currentUser.toLowerCase()) { setErr('Você não pode excluir o usuário com que está logado.'); return; }
-    setBusy(true);
-    try {
-      await window.firebaseApi.deleteAdmin(username);
-      await onLog(`Excluiu o usuário "${username}"`);
-      setMsg(`Usuário "${username}" excluído.`);
-      await reload();
-    } catch (e) { setErr(e.message); }
-    setBusy(false);
-  }
-
-  return (
-    <div>
-      <div className="card">
-        <p style={{margin: '0 0 4px', fontWeight: 700}}>Novo usuário</p>
-        <p className="meta" style={{marginBottom: 10}}>Crie um novo administrador. A senha é guardada com hash no banco, nunca em texto puro.</p>
-        <label>Usuário</label>
-        <input type="text" value={newUser} onChange={e => setNewUser(e.target.value)} placeholder="ex.: maria" />
-        <label>Senha</label>
-        <input type="password" value={newPass} onChange={e => setNewPass(e.target.value)} placeholder="Defina uma senha" />
-        <button className="btn btn-primary" style={{marginTop: 14}} disabled={busy} onClick={create}>Criar usuário</button>
-      </div>
-
-      {(msg || err) && (
-        <p style={{color: err ? '#B5562D' : '#047857', fontSize: 13, margin: '0 0 12px'}}>{err || msg}</p>
-      )}
-
-      <div className="card">
-        <p style={{margin: '0 0 10px', fontWeight: 700}}>Administradores ({admins ? admins.length : '…'})</p>
-        {!admins && <div className="empty">Carregando…</div>}
-        {admins && admins.length === 0 && <div className="empty">Nenhum usuário cadastrado.</div>}
-        {admins && admins.map(a => (
-          <div key={a.key} className="admin-slot-row" style={{flexWrap: 'wrap'}}>
-            <div>
-              <div>{a.username} {a.username.toLowerCase() === currentUser.toLowerCase() && <span className="meta">(você)</span>}</div>
-              {a.createdAt && <div className="meta">Criado em {formatTimestamp(a.createdAt)}</div>}
-            </div>
-            <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
-              <button className="btn btn-ghost" style={{flex: '0 0 auto'}} onClick={() => { setPwTarget(pwTarget === a.username ? '' : a.username); setPwValue(''); }}>Trocar senha</button>
-              <button className="btn btn-danger" onClick={() => remove(a.username)}>Excluir</button>
-            </div>
-            {pwTarget === a.username && (
-              <div className="row" style={{width: '100%', marginTop: 8}}>
-                <input type="password" value={pwValue} onChange={e => setPwValue(e.target.value)} placeholder={`Nova senha para ${a.username}`} onKeyDown={e => e.key === 'Enter' && changePw(a.username)} />
-                <button className="btn btn-primary" style={{flex: '0 0 auto'}} disabled={busy} onClick={() => changePw(a.username)}>Salvar</button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      <p className="small-note">Observação: este app acessa o banco direto do navegador, então a real proteção dos dados depende das Regras de Segurança do Firebase. O hash evita expor senhas, mas para segurança forte use Firebase Authentication.</p>
-    </div>
-  );
-}
-
-function LogsView() {
-  const [logs, setLogs] = useState(null);
-  const [err, setErr] = useState('');
-
-  async function reload() {
-    try { setLogs(await window.firebaseApi.listLogs(200)); } catch (e) { setErr(e.message); }
-  }
-  useEffect(() => { reload(); }, []);
-
-  return (
-    <div className="card">
-      <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10}}>
-        <p style={{margin: 0, fontWeight: 700}}>Registro de atividades</p>
-        <button className="btn btn-ghost" style={{flex: '0 0 auto'}} onClick={reload}>Atualizar</button>
-      </div>
-      {err && <p style={{color: '#B5562D', fontSize: 13}}>{err}</p>}
-      {!logs && <div className="empty">Carregando…</div>}
-      {logs && logs.length === 0 && <div className="empty">Nenhuma atividade registrada ainda.</div>}
-      {logs && logs.map(l => (
-        <div key={l.id} className="admin-slot-row">
-          <div>
-            <div>{l.action}</div>
-            <div className="meta">por {l.actor} · {formatTimestamp(l.at)}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AgendaView({ slots }) {
-  const [selected, setSelected] = useState(null);
-  const [anchor, setAnchor] = useState(null);
-  const allDates = [...new Set(slots.map(s => s.date))].sort();
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const [activeDate, setActiveDate] = useState(allDates.includes(todayStr) ? todayStr : (allDates[0] || ''));
-
-  useEffect(() => {
-    if (allDates.length > 0 && !allDates.includes(activeDate)) {
-      setActiveDate(allDates.includes(todayStr) ? todayStr : allDates[0]);
-    }
-  }, [slots.length]);
-
-  if (slots.length === 0) {
-    return <div className="card"><div className="empty">Nenhum horário cadastrado ainda. Vá em "Gerenciar horários" para adicionar.</div></div>;
-  }
-
-  const dayDates = activeDate === 'todos' ? allDates : [activeDate];
-  const dayTimes = [...new Set(slots.filter(s => dayDates.includes(s.date)).map(s => s.time))].sort();
-
-  const byKey = {};
-  slots.forEach(s => { byKey[`${s.date}|${s.time}`] = s; });
-
-  const visibleSlots = slots.filter(s => dayDates.includes(s.date));
-  const bookedCount = visibleSlots.filter(s => s.status === 'booked').length;
-
-  return (
-    <div>
-      <div className="card" style={{marginBottom: 16}}>
-        <label style={{marginTop: 0}}>Visualizando</label>
-        <div className="row" style={{alignItems: 'stretch'}}>
-          <input
-            type="date"
-            className="day-select"
-            value={activeDate === 'todos' ? '' : activeDate}
-            min={allDates[0]}
-            max={allDates[allDates.length - 1]}
-            onChange={e => { setActiveDate(e.target.value || (allDates[0] || '')); setSelected(null); }}
-          />
-          <button
-            className={"btn " + (activeDate === 'todos' ? 'btn-primary' : 'btn-ghost on-card')}
-            style={{flex: '0 0 auto'}}
-            onClick={() => { setActiveDate(activeDate === 'todos' ? (allDates.includes(todayStr) ? todayStr : allDates[0]) : 'todos'); setSelected(null); }}
-          >
-            {activeDate === 'todos' ? 'Ver um dia' : 'Todos os dias'}
-          </button>
-        </div>
-        {activeDate !== 'todos' && !allDates.includes(activeDate) && (
-          <p className="meta" style={{marginTop: 8}}>Não há horários cadastrados nessa data.</p>
-        )}
-        <div className="agenda-summary" style={{marginTop: 12}}>
-          <div><strong>{bookedCount}</strong> agendada{bookedCount !== 1 ? 's' : ''}</div>
-          <div className="meta">de {visibleSlots.length} horário{visibleSlots.length !== 1 ? 's' : ''} {activeDate === 'todos' ? 'no total' : 'nesse dia'}</div>
-        </div>
-      </div>
-
-      <div className="card agenda-card">
-        <div className="agenda-grid" style={{ gridTemplateColumns: `72px repeat(${dayDates.length}, minmax(110px, 1fr))` }}>
-          <div className="agenda-corner"></div>
-          {dayDates.map(d => (
-            <div key={d} className="agenda-day-head">
-              {new Date(d + "T00:00:00").toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}
-              <div className="agenda-day-num">{new Date(d + "T00:00:00").getDate().toString().padStart(2, '0')}/{(new Date(d + "T00:00:00").getMonth() + 1).toString().padStart(2, '0')}</div>
-            </div>
-          ))}
-
-          {dayTimes.map(t => (
-            <React.Fragment key={t}>
-              <div className="agenda-time-label">{t}</div>
-              {dayDates.map(d => {
-                const s = byKey[`${d}|${t}`];
-                if (!s) return <div key={d} className="agenda-cell agenda-cell-empty"></div>;
-                const isOpen = selected && selected.id === s.id;
-                return (
-                  <div
-                    key={d}
-                    className={"agenda-cell " + (s.status === 'booked' ? 'agenda-cell-booked' : 'agenda-cell-free') + (isOpen ? ' agenda-cell-open' : '')}
-                    onClick={(e) => {
-                      if (s.status !== 'booked') return;
-                      if (isOpen) { setSelected(null); setAnchor(null); return; }
-                      const r = e.currentTarget.getBoundingClientRect();
-                      setAnchor({ x: r.left + r.width / 2, y: r.bottom });
-                      setSelected(s);
-                    }}
-                  >
-                    {s.status === 'booked' ? (s.animalName || s.clientName || 'Ocupado') : ''}
-                  </div>
-                );
-              })}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
-
-      {selected && anchor && (
-        <>
-          <div className="agenda-popover-backdrop" onClick={() => { setSelected(null); setAnchor(null); }}></div>
-          <div
-            className="agenda-popover"
-            style={{
-              top: Math.min(anchor.y + 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 200),
-              left: Math.max(12, Math.min(anchor.x - 130, (typeof window !== 'undefined' ? window.innerWidth : 400) - 272))
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <button className="agenda-popover-close" onClick={() => { setSelected(null); setAnchor(null); }} aria-label="Fechar">×</button>
-            <p style={{margin: '0 0 6px', fontWeight: 700, fontSize: 14}}>{formatDateLabel(selected.date)} às {selected.time}</p>
-            <p className="meta" style={{margin: '0 0 2px'}}>Tutor: {selected.clientName || '—'}</p>
-            <p className="meta" style={{margin: 0}}>Animal: {selected.animalName || '—'}</p>
-            <button
-              className="btn btn-danger"
-              style={{marginTop: 12, width: '100%'}}
-              onClick={async () => { await window.firebaseApi.releaseSlot(selected.id); setSelected(null); setAnchor(null); }}
-            >Liberar horário</button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById('app-root')).render(<App />);
-</script>
+            // ===== RENDER =====
+            ReactDOM.createRoot(document.getElementById('app-root')).render( < App / > );
+  </script>
+</body>
+</html>
